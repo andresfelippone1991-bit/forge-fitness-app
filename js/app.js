@@ -935,39 +935,91 @@ Creá 4 ejercicios por cada sesión (${diasStr}). Devolvé SOLO JSON puro:
     };
 
     const semanaNum = Math.max(1, Math.floor(state.entrenamientos.length / Math.max(1, plan.sesiones.length)) + 1);
+    const hayOtroActivo = plan.sesiones.some((s, i) => i !== state.sesionIdx && !s.salteadoSemana);
 
     return `
       <div class="space-y-6 animate-view">
         <!-- Encabezado de sesión estilo TITUS -->
         <div class="space-y-3">
-          <div class="flex items-center justify-between">
+          <div class="flex items-center justify-between gap-2">
             <span class="font-mono text-[10px] uppercase tracking-[0.22em] text-gold">
               ${(plan.objetivoNombre || 'PLAN').toUpperCase()} · SEM ${semanaNum}
             </span>
-            <span class="font-mono text-[10px] uppercase tracking-[0.16em] text-sand">
-              ${eqLabels[plan.equipamiento] || ''}
-            </span>
+            <div class="flex items-center gap-2">
+              <span class="font-mono text-[10px] uppercase tracking-[0.14em] text-sand">
+                ${eqLabels[plan.equipamiento] || ''}
+              </span>
+              <button type="button" onclick="AppFORGE.abrirModalEditarDiaPlan(${state.sesionIdx})"
+                class="w-7 h-7 rounded-full border hairline text-sand hover:text-gold flex items-center justify-center transition"
+                title="Opciones de este día (saltear, renombrar, eliminar)">
+                <span class="material-symbols-outlined text-[15px]">tune</span>
+              </button>
+            </div>
           </div>
 
-          <!-- Selector de días del plan -->
+          <!-- Selector de días del plan + botón rápido + Día -->
           <div class="flex gap-2 overflow-x-auto pb-1">
             ${plan.sesiones
               .map((s, idx) => {
                 const activo = idx === state.sesionIdx;
+                const salteado = Boolean(s.salteadoSemana);
                 return `
                 <button type="button" onclick="AppFORGE.seleccionarDiaPlan(${idx})"
-                  class="px-4 py-1.5 rounded-full font-display text-[11px] tracking-[0.14em] uppercase shrink-0 transition-all ${
+                  class="px-3.5 py-1.5 rounded-full font-display text-[11px] tracking-[0.12em] uppercase shrink-0 transition-all flex items-center gap-1.5 ${
                     activo
-                      ? 'border border-gold bg-gold/15 text-gold-hi font-semibold'
+                      ? salteado
+                        ? 'border border-sand/50 bg-white/5 text-sand font-semibold'
+                        : 'border border-gold bg-gold/15 text-gold-hi font-semibold'
+                      : salteado
+                      ? 'border hairline text-sandDim opacity-65'
                       : 'border hairline text-sand hover:text-ivory'
                   }">
-                  Día ${aRomano(idx)} · ${s.titulo || s.divisionMuscular}
+                  <span class="${salteado ? 'line-through' : ''}">Día ${aRomano(idx)} · ${s.titulo || s.divisionMuscular}</span>
+                  ${salteado ? '<span class="font-mono text-[8.5px] px-1.5 py-0.5 rounded-full bg-white/10 text-sand">OFF</span>' : ''}
                 </button>
               `;
               })
               .join('')}
+            <button type="button" onclick="AppFORGE.abrirModalAgregarDiaPlan()"
+              class="px-3.5 py-1.5 rounded-full border border-dashed border-gold/40 hover:border-gold text-gold-soft font-mono text-[10px] uppercase tracking-wider shrink-0 flex items-center gap-1 transition">
+              <span class="material-symbols-outlined text-[14px]">add</span>
+              <span>Día</span>
+            </button>
           </div>
         </div>
+
+        <!-- Banner si este día está marcado como salteado esta semana -->
+        ${
+          sesion.salteadoSemana
+            ? `
+            <div class="p-4 rounded-2xl card-forge border-sand/35 space-y-3">
+              <div class="flex items-start justify-between gap-3">
+                <div>
+                  <div class="font-mono text-[9.5px] uppercase tracking-[0.2em] text-sand">DÍA SALTEADO ESTA SEMANA</div>
+                  <p class="font-editorial italic text-base text-ivory/90 mt-0.5">
+                    Lo pausaste por esta semana. Tu rutina y progreso quedan guardados para la próxima.
+                  </p>
+                </div>
+                <span class="material-symbols-outlined text-sand text-[20px] shrink-0">event_busy</span>
+              </div>
+              <div class="flex flex-wrap gap-2">
+                <button type="button" onclick="AppFORGE.alternarSaltearDia(${state.sesionIdx})"
+                  class="px-4 py-2 rounded-full btn-gold font-display text-[10px] font-bold tracking-[0.14em] uppercase">
+                  Reactivar hoy
+                </button>
+                ${
+                  hayOtroActivo
+                    ? `<button type="button" onclick="AppFORGE.irAlSiguienteDiaActivo()"
+                        class="px-4 py-2 rounded-full btn-ghost font-mono text-[10px] uppercase tracking-wider">
+                        Pasar al siguiente día →
+                      </button>`
+                    : ''
+                }
+              </div>
+            </div>
+          `
+            : ''
+        }
 
         <!-- Aviso discreto si el usuario editó esta sesión -->
         ${
@@ -1299,6 +1351,10 @@ Creá 4 ejercicios por cada sesión (${diasStr}). Devolvé SOLO JSON puro:
       avanzado: 'Avanzado'
     };
 
+    const totalDias = plan.sesiones.length;
+    const diasSalteados = plan.sesiones.filter((s) => s.salteadoSemana).length;
+    const diasActivos = totalDias - diasSalteados;
+
     return `
       <div class="space-y-6 animate-view">
         <!-- Encabezado editorial centrado -->
@@ -1334,7 +1390,17 @@ Creá 4 ejercicios por cada sesión (${diasStr}). Devolvé SOLO JSON puro:
           </div>
 
           <div class="px-6 pb-6 space-y-4">
-            <div class="font-mono text-[10px] uppercase tracking-[0.26em] text-sand">— PLAN ACTUAL —</div>
+            <div class="flex items-center justify-between gap-2">
+              <div class="font-mono text-[10px] uppercase tracking-[0.26em] text-sand">— PLAN ACTUAL —</div>
+              ${
+                diasSalteados > 0
+                  ? `<button type="button" onclick="AppFORGE.reiniciarSemanaSalteados()"
+                      class="font-mono text-[9.5px] uppercase tracking-wider text-gold hover:text-gold-hi underline underline-offset-4">
+                      Reactivar semana (${diasSalteados})
+                    </button>`
+                  : ''
+              }
+            </div>
 
             <!-- Etiquetas limpias -->
             <div class="flex flex-wrap items-center gap-2">
@@ -1347,39 +1413,97 @@ Creá 4 ejercicios por cada sesión (${diasStr}). Devolvé SOLO JSON puro:
             </div>
 
             <div class="flex flex-wrap items-center gap-2 font-mono text-[11px] text-sand">
-              <span class="px-2.5 py-1 rounded-full border hairline">${p.dias || 4} días/sem</span>
+              <span class="px-2.5 py-1 rounded-full border hairline">${
+                diasSalteados > 0 ? `${diasActivos}/${totalDias} días activos` : `${totalDias} días/sem`
+              }</span>
               <span class="px-2.5 py-1 rounded-full border hairline">${p.divisionMuscular || 'PPL'}</span>
               <span class="px-2.5 py-1 rounded-full border hairline">${eqLabels[plan.equipamiento] || 'Gym'}</span>
             </div>
 
             <div>
               <h2 class="font-display text-xl font-bold text-ivory tracking-wide leading-snug uppercase">
-                ${(plan.objetivoNombre || 'ENTRENO').toUpperCase()} — ${p.dias || 4} DÍAS ${p.divisionMuscular || 'PPL'}
+                ${(plan.objetivoNombre || 'ENTRENO').toUpperCase()} — ${totalDias} DÍAS ${p.divisionMuscular || 'PPL'}
               </h2>
               <p class="font-editorial italic text-base text-sand mt-1.5">
                 ${plan.mensajeCoach || 'Tu plan semanal, ajustado automáticamente con cada serie que registrás.'}
               </p>
             </div>
 
-            <!-- Días incluidos en el plan (clicables directo a Entrenar) -->
+            <!-- Días incluidos en el plan (clicables directo a Entrenar + botón editar/saltear) -->
             <div class="space-y-2 pt-2 border-t hairline">
+              <div class="flex items-center justify-between px-0.5 pb-0.5">
+                <span class="font-mono text-[9.5px] uppercase tracking-[0.2em] text-sandDim">Días de tu semana</span>
+                <span class="font-mono text-[9px] text-sandDim">Tocá ⋯ para saltear o editar</span>
+              </div>
               ${plan.sesiones
-                .map(
-                  (s, idx) => `
-                <button type="button" onclick="AppFORGE.abrirDiaEnEntrenar(${idx})"
-                  class="w-full px-4 py-3 rounded-xl bg-obsidian/70 hover:bg-obsidian3 border hairline flex items-center justify-between transition text-left">
-                  <div class="flex items-center gap-3 min-w-0">
-                    <span class="font-display text-xs text-gold w-5">${aRomano(idx)}</span>
+                .map((s, idx) => {
+                  const salteado = Boolean(s.salteadoSemana);
+                  const soloCardio =
+                    Boolean(s.esDiaCardio) ||
+                    (s.ejercicios.length > 0 && s.ejercicios.every((e) => e.esCardio || e.tipo === 'cardio'));
+                  const minCardio = s.ejercicios
+                    .filter((e) => e.esCardio || e.tipo === 'cardio')
+                    .reduce(
+                      (acc, e) =>
+                        acc + (e.series || []).reduce((m, sr) => m + (Number(sr.tiempo_minutos) || 0), 0),
+                      0
+                    );
+                  const subtexto = soloCardio
+                    ? `${minCardio || 15} min · Solo tiempo`
+                    : minCardio > 0
+                    ? `${s.ejercicios.length} ejercicios · +${minCardio} min cardio`
+                    : `${s.ejercicios.length} ejercicios`;
+
+                  return `
+                <div class="rounded-xl bg-obsidian/70 border hairline flex items-center justify-between transition ${
+                  salteado ? 'opacity-60 border-dashed' : 'hover:border-gold/35'
+                }">
+                  <button type="button" onclick="AppFORGE.abrirDiaEnEntrenar(${idx})"
+                    class="flex-1 px-4 py-3 flex items-center gap-3 min-w-0 text-left">
+                    <span class="font-display text-xs ${salteado ? 'text-sandDim' : 'text-gold'} w-5 shrink-0">${aRomano(idx)}</span>
                     <div class="min-w-0">
-                      <div class="text-sm font-medium text-ivory truncate">${s.titulo || s.divisionMuscular}</div>
-                      <div class="text-[11px] text-sand">${s.ejercicios.length} ejercicios</div>
+                      <div class="flex items-center gap-2">
+                        <span class="text-sm font-medium text-ivory truncate ${salteado ? 'line-through text-sand' : ''}">${
+                          s.titulo || s.divisionMuscular
+                        }</span>
+                        ${
+                          salteado
+                            ? `<span class="px-2 py-0.5 rounded-full bg-white/10 font-mono text-[8.5px] uppercase tracking-wider text-sand shrink-0">Salteado</span>`
+                            : soloCardio
+                            ? `<span class="px-2 py-0.5 rounded-full bg-mint/10 border border-mint/25 font-mono text-[8.5px] uppercase tracking-wider text-mint shrink-0">Cardio</span>`
+                            : ''
+                        }
+                      </div>
+                      <div class="text-[11px] text-sand">${subtexto}</div>
                     </div>
+                  </button>
+                  <div class="flex items-center gap-1 pr-2.5 shrink-0">
+                    <button type="button" onclick="AppFORGE.alternarSaltearDia(${idx})"
+                      class="w-8 h-8 rounded-full border hairline flex items-center justify-center transition ${
+                        salteado
+                          ? 'text-gold border-gold/40 bg-gold/10'
+                          : 'text-sandDim hover:text-ivory hover:border-gold/30'
+                      }"
+                      title="${salteado ? 'Reactivar este día' : 'Saltear este día esta semana'}">
+                      <span class="material-symbols-outlined text-[16px]">${salteado ? 'replay' : 'event_busy'}</span>
+                    </button>
+                    <button type="button" onclick="AppFORGE.abrirModalEditarDiaPlan(${idx})"
+                      class="w-8 h-8 rounded-full border hairline text-sand hover:text-gold flex items-center justify-center transition"
+                      title="Editar o eliminar día">
+                      <span class="material-symbols-outlined text-[16px]">more_horiz</span>
+                    </button>
                   </div>
-                  <span class="material-symbols-outlined text-gold/60 text-[18px]">chevron_right</span>
-                </button>
-              `
-                )
+                </div>
+              `;
+                })
                 .join('')}
+
+              <!-- Botón agregar nuevo día (Cardio o Fuerza) -->
+              <button type="button" onclick="AppFORGE.abrirModalAgregarDiaPlan()"
+                class="w-full py-3 rounded-xl border border-dashed border-gold/35 hover:border-gold/70 bg-gold/[0.03] font-mono text-[10px] uppercase tracking-[0.18em] text-gold-soft hover:text-gold-hi flex items-center justify-center gap-1.5 transition mt-1">
+                <span class="material-symbols-outlined text-[16px]">add</span>
+                <span>Agregar día (Cardio o Fuerza)</span>
+              </button>
             </div>
 
             <!-- Acciones -->
@@ -2862,6 +2986,302 @@ Auditoría inicial: ${JSON.stringify({ puntaje: audit.puntaje, alertas: audit.al
     );
   }
 
+  /**
+   * =========================================================================
+   * GESTIÓN DEL PLAN SEMANAL (Agregar días de Cardio/Fuerza, Saltear esta semana, Editar/Eliminar días)
+   * =========================================================================
+   */
+  function abrirModalAgregarDiaPlan() {
+    abrirModalHTML(`
+      <div class="space-y-5">
+        <div class="flex items-start justify-between gap-3">
+          <div>
+            <div class="font-mono text-[9.5px] uppercase tracking-[0.2em] text-gold">MODIFICAR MI PLAN</div>
+            <h3 class="font-display text-lg uppercase tracking-wider text-ivory mt-0.5">Agregar día a tu semana</h3>
+          </div>
+          <button type="button" onclick="AppFORGE.cerrarModal()"
+            class="w-8 h-8 rounded-full border hairline text-sand hover:text-ivory flex items-center justify-center shrink-0">
+            <span class="material-symbols-outlined text-[16px]">close</span>
+          </button>
+        </div>
+
+        <div>
+          <label class="font-mono text-[10px] uppercase text-sand block mb-1">Nombre personalizado (opcional)</label>
+          <input id="nuevo-dia-titulo" type="text" placeholder="Ej: Sábado Cardio HIIT, Pierna extra..."
+            class="w-full px-3.5 py-2.5 rounded-xl bg-obsidian border hairline text-sm text-ivory placeholder:text-sandDim focus:outline-none focus:border-gold" />
+        </div>
+
+        <!-- Bloque 1: Días de Cardio (solo tiempo) -->
+        <div class="space-y-2">
+          <div class="font-mono text-[10px] uppercase tracking-[0.18em] text-mint">Día de Cardio (Solo por tiempo)</div>
+          <div class="space-y-2">
+            <button type="button" onclick="AppFORGE.agregarDiaAlPlan('cardio_intenso')"
+              class="w-full p-3.5 rounded-xl bg-obsidian hover:bg-obsidian3 border border-red-400/25 hover:border-red-400/55 text-left flex items-center justify-between gap-3 transition">
+              <div>
+                <div class="text-sm font-medium text-ivory">Cardio Intenso · HIIT / Tabata</div>
+                <div class="font-mono text-[10px] text-red-300 mt-0.5">Intervalos cortos de alta potencia (solo tiempo)</div>
+              </div>
+              <span class="material-symbols-outlined text-gold text-[18px]">add_circle</span>
+            </button>
+
+            <button type="button" onclick="AppFORGE.agregarDiaAlPlan('cardio_medio')"
+              class="w-full p-3.5 rounded-xl bg-obsidian hover:bg-obsidian3 border border-gold/25 hover:border-gold/55 text-left flex items-center justify-between gap-3 transition">
+              <div>
+                <div class="text-sm font-medium text-ivory">Cardio Medio · Aeróbico</div>
+                <div class="font-mono text-[10px] text-gold-soft mt-0.5">Ritmo sostenido 15–20 min (solo tiempo)</div>
+              </div>
+              <span class="material-symbols-outlined text-gold text-[18px]">add_circle</span>
+            </button>
+
+            <button type="button" onclick="AppFORGE.agregarDiaAlPlan('cardio_bajo')"
+              class="w-full p-3.5 rounded-xl bg-obsidian hover:bg-obsidian3 border border-mint/25 hover:border-mint/55 text-left flex items-center justify-between gap-3 transition">
+              <div>
+                <div class="text-sm font-medium text-ivory">Cardio Bajo · Sin impacto</div>
+                <div class="font-mono text-[10px] text-mint mt-0.5">Zona 2 suave, cero saltos, cuida rodillas</div>
+              </div>
+              <span class="material-symbols-outlined text-gold text-[18px]">add_circle</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Bloque 2: Días de Fuerza o Libre -->
+        <div class="space-y-2 pt-2 border-t hairline">
+          <div class="font-mono text-[10px] uppercase tracking-[0.18em] text-gold">Día de Fuerza o Libre</div>
+          <div class="grid grid-cols-2 gap-2">
+            ${[
+              { id: 'Empuje', label: 'Empuje' },
+              { id: 'Tirón', label: 'Tirón' },
+              { id: 'Pierna', label: 'Pierna' },
+              { id: 'Full Body', label: 'Full Body' }
+            ]
+              .map(
+                (f) => `
+              <button type="button" onclick="AppFORGE.agregarDiaAlPlan('${f.id}')"
+                class="py-2.5 px-3 rounded-xl card-forge hover:border-gold/50 text-xs font-medium text-ivory flex items-center justify-between transition">
+                <span>${f.label}</span>
+                <span class="material-symbols-outlined text-gold text-[16px]">add</span>
+              </button>
+            `
+              )
+              .join('')}
+          </div>
+          <button type="button" onclick="AppFORGE.agregarDiaAlPlan('libre')"
+            class="w-full py-2.5 rounded-xl border border-dashed hairline hover:border-gold/50 font-mono text-[10px] uppercase tracking-wider text-sand hover:text-ivory transition">
+            + Día vacío para armar desde cero
+          </button>
+        </div>
+      </div>
+    `);
+  }
+
+  async function agregarDiaAlPlan(tipo) {
+    if (!state.userPlan?.sesiones) return;
+    const tituloCustom = (document.getElementById('nuevo-dia-titulo')?.value || '').trim();
+
+    const nuevaSesion = await window.MotorEntrenamiento.crearSesionParaPlan(
+      tipo,
+      { titulo: tituloCustom },
+      state.userProfile || draftOnboarding,
+      state.entrenamientos,
+      state.modoDeload
+    );
+
+    state.userPlan.sesiones.push(nuevaSesion);
+    if (state.userProfile) {
+      state.userProfile.dias = state.userPlan.sesiones.length;
+      guardarProfile(state.userProfile);
+    }
+    guardarUserPlan(state.userPlan);
+
+    if (state.vista === 'entrenar') {
+      state.sesionIdx = state.userPlan.sesiones.length - 1;
+    }
+
+    cerrarModal();
+    renderizar();
+    mostrarToastRecalibro(
+      'DÍA AGREGADO AL PLAN',
+      `"${nuevaSesion.titulo}" sumado a tu semana (${state.userPlan.sesiones.length} días).`
+    );
+  }
+
+  function abrirModalEditarDiaPlan(idx) {
+    const plan = state.userPlan;
+    const ses = plan?.sesiones?.[idx];
+    if (!ses) return;
+
+    const salteado = Boolean(ses.salteadoSemana);
+    const puedeSubir = idx > 0;
+    const puedeBajar = idx < plan.sesiones.length - 1;
+    const puedeEliminar = plan.sesiones.length > 1;
+
+    abrirModalHTML(`
+      <div class="space-y-5">
+        <div class="flex items-start justify-between gap-3">
+          <div>
+            <div class="font-mono text-[9.5px] uppercase tracking-[0.2em] text-gold">DÍA ${aRomano(idx)} DEL PLAN</div>
+            <h3 class="font-display text-lg uppercase tracking-wider text-ivory mt-0.5">${ses.titulo || ses.divisionMuscular}</h3>
+          </div>
+          <button type="button" onclick="AppFORGE.cerrarModal()"
+            class="w-8 h-8 rounded-full border hairline text-sand hover:text-ivory flex items-center justify-center shrink-0">
+            <span class="material-symbols-outlined text-[16px]">close</span>
+          </button>
+        </div>
+
+        <!-- Acción destacada: Saltear esta semana / Reactivar -->
+        <button type="button" onclick="AppFORGE.alternarSaltearDia(${idx}, true)"
+          class="w-full p-4 rounded-2xl border text-left flex items-center justify-between gap-3 transition ${
+            salteado
+              ? 'bg-gold/12 border-gold/45 hover:bg-gold/20'
+              : 'card-forge hover:border-gold/45'
+          }">
+          <div>
+            <div class="text-sm font-medium ${salteado ? 'text-gold-hi' : 'text-ivory'}">
+              ${salteado ? 'Reactivar este día esta semana' : 'Marcar como salteado esta semana'}
+            </div>
+            <div class="text-xs text-sand mt-0.5">
+              ${
+                salteado
+                  ? 'Volvé a incluirlo en tu semana actual.'
+                  : 'Lo salteás solo esta semana sin borrar tus ejercicios ni tu historial.'
+              }
+            </div>
+          </div>
+          <span class="material-symbols-outlined text-[22px] ${salteado ? 'text-gold' : 'text-sand'} shrink-0">
+            ${salteado ? 'replay' : 'event_busy'}
+          </span>
+        </button>
+
+        <!-- Renombrar día -->
+        <form onsubmit="AppFORGE.guardarNombreDiaPlan(event, ${idx})" class="space-y-2.5">
+          <label class="font-mono text-[10px] uppercase text-sand block">Nombre del día</label>
+          <div class="flex gap-2">
+            <input id="edit-dia-titulo" type="text" required value="${(ses.titulo || ses.divisionMuscular || '').replace(/"/g, '&quot;')}"
+              class="flex-1 px-3.5 py-2.5 rounded-xl bg-obsidian border hairline text-sm text-ivory focus:outline-none focus:border-gold" />
+            <button type="submit"
+              class="px-4 py-2.5 rounded-xl btn-gold font-display text-[10px] font-bold uppercase tracking-wider shrink-0">
+              Guardar
+            </button>
+          </div>
+        </form>
+
+        <!-- Orden en la semana + Ir a entrenar -->
+        <div class="grid grid-cols-3 gap-2 pt-2 border-t hairline">
+          <button type="button" onclick="AppFORGE.moverDiaPlan(${idx}, -1)" ${!puedeSubir ? 'disabled' : ''}
+            class="py-2.5 px-2 rounded-xl card-forge text-ivory font-mono text-[10px] uppercase tracking-wider flex items-center justify-center gap-1 disabled:opacity-35">
+            <span class="material-symbols-outlined text-[15px] text-gold">arrow_upward</span>
+            <span>Subir</span>
+          </button>
+          <button type="button" onclick="AppFORGE.moverDiaPlan(${idx}, 1)" ${!puedeBajar ? 'disabled' : ''}
+            class="py-2.5 px-2 rounded-xl card-forge text-ivory font-mono text-[10px] uppercase tracking-wider flex items-center justify-center gap-1 disabled:opacity-35">
+            <span class="material-symbols-outlined text-[15px] text-gold">arrow_downward</span>
+            <span>Bajar</span>
+          </button>
+          <button type="button" onclick="AppFORGE.cerrarModal(); AppFORGE.abrirDiaEnEntrenar(${idx});"
+            class="py-2.5 px-2 rounded-xl card-forge text-gold-soft font-mono text-[10px] uppercase tracking-wider flex items-center justify-center gap-1">
+            <span class="material-symbols-outlined text-[15px] text-gold">play_arrow</span>
+            <span>Entrenar</span>
+          </button>
+        </div>
+
+        ${
+          puedeEliminar
+            ? `<button type="button" onclick="AppFORGE.eliminarDiaPlan(${idx})"
+                class="w-full py-2.5 rounded-xl bg-red-500/10 border border-red-500/30 hover:bg-red-500/20 text-red-300 font-mono text-[10px] uppercase tracking-wider flex items-center justify-center gap-1.5 transition">
+                <span class="material-symbols-outlined text-[15px]">delete</span>
+                <span>Eliminar este día del plan</span>
+              </button>`
+            : ''
+        }
+      </div>
+    `);
+  }
+
+  function guardarNombreDiaPlan(ev, idx) {
+    ev.preventDefault();
+    const ses = state.userPlan?.sesiones?.[idx];
+    if (!ses) return;
+    const nuevo = (document.getElementById('edit-dia-titulo')?.value || '').trim();
+    if (!nuevo) return;
+    ses.titulo = nuevo;
+    ses.divisionMuscular = nuevo;
+    guardarUserPlan(state.userPlan);
+    cerrarModal();
+    renderizar();
+    mostrarToastRecalibro('DÍA ACTUALIZADO', `Ahora se llama "${nuevo}".`);
+  }
+
+  function alternarSaltearDia(idx, cerrar = false) {
+    const ses = state.userPlan?.sesiones?.[idx];
+    if (!ses) return;
+    ses.salteadoSemana = !ses.salteadoSemana;
+    ses.fechaSalteado = ses.salteadoSemana ? new Date().toISOString().slice(0, 10) : null;
+    guardarUserPlan(state.userPlan);
+    if (cerrar) cerrarModal();
+    renderizar();
+    mostrarToastRecalibro(
+      ses.salteadoSemana ? 'DÍA SALTEADO ESTA SEMANA' : 'DÍA REACTIVADO',
+      ses.salteadoSemana
+        ? `"${ses.titulo || ses.divisionMuscular}" quedó pausado por esta semana.`
+        : `"${ses.titulo || ses.divisionMuscular}" volvió a tu semana activa.`
+    );
+  }
+
+  function moverDiaPlan(idx, delta) {
+    const sesiones = state.userPlan?.sesiones;
+    if (!sesiones) return;
+    const destino = idx + delta;
+    if (destino < 0 || destino >= sesiones.length) return;
+    const [item] = sesiones.splice(idx, 1);
+    sesiones.splice(destino, 0, item);
+    if (state.sesionIdx === idx) state.sesionIdx = destino;
+    guardarUserPlan(state.userPlan);
+    abrirModalEditarDiaPlan(destino);
+    renderizar();
+  }
+
+  function eliminarDiaPlan(idx) {
+    const sesiones = state.userPlan?.sesiones;
+    if (!sesiones || sesiones.length <= 1 || !sesiones[idx]) return;
+    const eliminado = sesiones[idx].titulo || sesiones[idx].divisionMuscular;
+    sesiones.splice(idx, 1);
+    if (state.sesionIdx >= sesiones.length) {
+      state.sesionIdx = Math.max(0, sesiones.length - 1);
+    }
+    if (state.userProfile) {
+      state.userProfile.dias = sesiones.length;
+      guardarProfile(state.userProfile);
+    }
+    guardarUserPlan(state.userPlan);
+    cerrarModal();
+    renderizar();
+    mostrarToastRecalibro('DÍA ELIMINADO', `Quitaste "${eliminado}" de tu plan semanal.`);
+  }
+
+  function reiniciarSemanaSalteados() {
+    if (!state.userPlan?.sesiones) return;
+    state.userPlan.sesiones.forEach((s) => {
+      s.salteadoSemana = false;
+      s.fechaSalteado = null;
+    });
+    guardarUserPlan(state.userPlan);
+    renderizar();
+    mostrarToastRecalibro('SEMANA REACTIVADA', 'Todos los días de tu plan vuelven a estar activos.');
+  }
+
+  function irAlSiguienteDiaActivo() {
+    const sesiones = state.userPlan?.sesiones || [];
+    if (!sesiones.length) return;
+    for (let offset = 1; offset < sesiones.length; offset++) {
+      const idx = (state.sesionIdx + offset) % sesiones.length;
+      if (!sesiones[idx].salteadoSemana) {
+        state.sesionIdx = idx;
+        renderizar();
+        return;
+      }
+    }
+  }
+
   function abrirModalBiometria() {
     const ultima = state.metricasCorporales[state.metricasCorporales.length - 1] || {
       pesoCorporalKg: 78.4,
@@ -3456,6 +3876,15 @@ Consulta del atleta: "${pregunta}"`;
     eliminarEjercicioDeSesion,
     analizarRutinaModificadaConCoach,
     optimizarOrdenYDescansos,
+    abrirModalAgregarDiaPlan,
+    agregarDiaAlPlan,
+    abrirModalEditarDiaPlan,
+    guardarNombreDiaPlan,
+    alternarSaltearDia,
+    moverDiaPlan,
+    eliminarDiaPlan,
+    reiniciarSemanaSalteados,
+    irAlSiguienteDiaActivo,
     abrirModalBiometria,
     guardarBiometriaModal,
     cerrarModal,

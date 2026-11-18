@@ -655,6 +655,12 @@ const MotorEntrenamiento = (() => {
         titulo: ses.titulo || ses.divisionMuscular || `Día ${sesIdx + 1}`,
         enfoque: ses.enfoque || '',
         objetivoNombre: paramsObj.nombre,
+        esDiaCardio:
+          ses.esDiaCardio !== undefined
+            ? Boolean(ses.esDiaCardio)
+            : ejerciciosLimpios.length > 0 && ejerciciosLimpios.every((e) => esEjercicioCardio(e)),
+        salteadoSemana: Boolean(ses.salteadoSemana),
+        fechaSalteado: ses.fechaSalteado || null,
         modificadaPorUsuario: Boolean(ses.modificadaPorUsuario),
         ejercicios: ejerciciosLimpios
       };
@@ -755,6 +761,97 @@ const MotorEntrenamiento = (() => {
         rir: Number(ejBase.rirObjetivo) || paramsObj.rirObjetivo || 2,
         completada: false
       }))
+    };
+  }
+
+  /**
+   * Crea una nueva sesión (día) lista para agregar al plan semanal del usuario:
+   * - 'cardio_intenso' | 'cardio_medio' | 'cardio_bajo'
+   * - 'Empuje' | 'Tirón' | 'Pierna' | 'Full Body' | 'libre'
+   */
+  async function crearSesionParaPlan(tipo = 'cardio_medio', opciones = {}, userProfile = {}, entrenamientos = [], modoDeload = false) {
+    const db = await cargarBaseDeDatos();
+    const equipamiento = userProfile?.equipamiento || 'gimnasio';
+    const objetivo = userProfile?.objetivo || 'hipertrofia';
+    const nivel = userProfile?.nivel || 'intermedio';
+    const paramsObj = db.parametrosPorObjetivo?.[objetivo] || db.parametrosPorObjetivo.hipertrofia;
+    const criterioNivel = db.criteriosPorNivel?.[nivel] || {};
+    const seriesAjustadas = Math.max(2, (paramsObj.seriesBase || 3) + (criterioNivel.seriesAjuste || 0));
+    const molestias = detectarMolestias(userProfile?.notasIA || '');
+
+    let titulo = (opciones.titulo || '').trim();
+    let enfoque = '';
+    let esDiaCardio = false;
+    let seleccionados = [];
+
+    if (tipo.startsWith('cardio_')) {
+      esDiaCardio = true;
+      const intensidad = tipo.replace('cardio_', ''); // 'intenso' | 'medio' | 'bajo'
+      const labelInt = etiquetaIntensidadCardio(intensidad);
+      if (!titulo) {
+        titulo =
+          intensidad === 'intenso'
+            ? 'Cardio HIIT / Tabata'
+            : intensidad === 'bajo'
+            ? 'Cardio Sin Impacto'
+            : 'Cardio Moderado';
+      }
+      enfoque = `Solo por tiempo · ${labelInt}`;
+
+      const todosCardio = db.catalogoEjercicios?.Cardio || [];
+      const porIntensidad = todosCardio.filter((c) => c.intensidadCardio === intensidad);
+      const porEquipo = porIntensidad.filter((c) => (c.equipamiento || []).includes(equipamiento));
+      const base = porEquipo.length ? porEquipo : porIntensidad;
+      const seguros = molestias.length
+        ? base.filter((c) => !(c.contraindicaciones || []).some((m) => molestias.includes(m)))
+        : base;
+      const pool = seguros.length ? seguros : base;
+      seleccionados = pool.slice(0, intensidad === 'intenso' ? 2 : 1);
+    } else if (tipo === 'Full Body') {
+      if (!titulo) titulo = 'Full Body Extra';
+      enfoque = 'Cuerpo completo';
+      const pList = obtenerEjerciciosPorNivelYEquipamiento(db, 'Pierna', userProfile, 2);
+      const eList = obtenerEjerciciosPorNivelYEquipamiento(db, 'Empuje', userProfile, 2);
+      const tList = obtenerEjerciciosPorNivelYEquipamiento(db, 'Tirón', userProfile, 2);
+      seleccionados = [pList[0], eList[0], tList[0], pList[1] || eList[1]].filter(Boolean);
+    } else if (tipo === 'Empuje' || tipo === 'Tirón' || tipo === 'Pierna') {
+      if (!titulo) titulo = tipo;
+      enfoque = criterioNivel.titulo || paramsObj.nombre;
+      seleccionados = obtenerEjerciciosPorNivelYEquipamiento(db, tipo, userProfile, 4);
+    } else {
+      if (!titulo) titulo = 'Día Personalizado';
+      enfoque = 'Armado a tu medida';
+      seleccionados = [];
+    }
+
+    const ejerciciosHidratados = [];
+    for (const ejBase of seleccionados) {
+      const esC = esEjercicioCardio(ejBase);
+      const listo = await construirEjercicioListo(
+        {
+          ...ejBase,
+          seriesObjetivo: esC ? ejBase.seriesObjetivo || 1 : seriesAjustadas,
+          repsMin: esC ? 0 : paramsObj.repsMin,
+          repsMax: esC ? 0 : paramsObj.repsMax
+        },
+        userProfile,
+        entrenamientos,
+        modoDeload
+      );
+      ejerciciosHidratados.push(listo);
+    }
+
+    return {
+      id: `dia_custom_${Date.now()}`,
+      divisionMuscular: titulo,
+      titulo,
+      enfoque,
+      objetivoNombre: paramsObj.nombre,
+      esDiaCardio,
+      salteadoSemana: false,
+      fechaSalteado: null,
+      modificadaPorUsuario: false,
+      ejercicios: ejerciciosHidratados
     };
   }
 
@@ -936,6 +1033,7 @@ const MotorEntrenamiento = (() => {
     hidratarPlanConProgresion,
     obtenerCatalogoCompleto,
     construirEjercicioListo,
+    crearSesionParaPlan,
     analizarRutinaModificada
   };
 })();
