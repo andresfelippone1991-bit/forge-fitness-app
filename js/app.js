@@ -27,6 +27,28 @@ const AppFORGE = (() => {
     { idx: 4, label: 'AL FALLO', rir: 0, desc: 'Al límite máximo' }
   ];
 
+  const CARDIO_BADGES = {
+    intenso: {
+      label: 'INTENSO · HIIT / TABATA',
+      short: 'Intenso (HIIT/Tabata)',
+      cls: 'bg-red-500/15 border-red-400/35 text-red-300'
+    },
+    medio: {
+      label: 'MEDIO · AERÓBICO',
+      short: 'Medio',
+      cls: 'bg-gold/15 border-gold/40 text-gold-hi'
+    },
+    bajo: {
+      label: 'BAJO · SIN IMPACTO',
+      short: 'Bajo (Sin impacto)',
+      cls: 'bg-mint/10 border-mint/30 text-mint'
+    }
+  };
+
+  function obtenerBadgeCardio(intensidad = 'medio') {
+    return CARDIO_BADGES[intensidad] || CARDIO_BADGES.medio;
+  }
+
   let state = {
     vista: 'entrenar', // 'onboarding' | 'entrenar' | 'plan' | 'coach' | 'progreso'
     subTabProgreso: 'progreso', // 'progreso' | 'ajustes'
@@ -45,6 +67,7 @@ const AppFORGE = (() => {
     ejercicioGrafico: '',
     descanso: {
       activo: false,
+      etiqueta: 'Descanso',
       total: 90,
       restante: 0,
       finTs: null,
@@ -474,11 +497,13 @@ Creá 4 ejercicios por cada sesión (${diasStr}). Devolvé SOLO JSON puro:
     } catch (e) {}
   }
 
-  function iniciarDescanso(segundos = 90) {
+  function iniciarDescanso(segundos = 90, etiqueta = 'Descanso') {
     if (state.descanso.interval) clearInterval(state.descanso.interval);
     const total = Math.max(15, Number(segundos) || 90);
+    const esCardioTimer = etiqueta.toLowerCase().includes('cardio');
     state.descanso = {
       activo: true,
+      etiqueta,
       total,
       restante: total,
       finTs: Date.now() + total * 1000,
@@ -492,7 +517,10 @@ Creá 4 ejercicios por cada sesión (${diasStr}). Devolvé SOLO JSON puro:
           state.descanso.activo = false;
           sonarAlerta('fin');
           actualizarPildoraDescanso();
-          mostrarToastRecalibro('DESCANSO LISTO', 'Podés pasar a tu próxima serie.');
+          mostrarToastRecalibro(
+            esCardioTimer ? 'BLOQUE DE CARDIO LISTO' : 'DESCANSO LISTO',
+            esCardioTimer ? 'Completaste el tiempo objetivo. Marcá el bloque y calificá cómo se sintió.' : 'Podés pasar a tu próxima serie.'
+          );
         }
       }, 250)
     };
@@ -520,6 +548,7 @@ Creá 4 ejercicios por cada sesión (${diasStr}). Devolvé SOLO JSON puro:
 
   function actualizarPildoraDescanso() {
     const pill = document.getElementById('floating-rest-pill');
+    const lbl = document.getElementById('rest-label');
     const txt = document.getElementById('rest-countdown-text');
     const bar = document.getElementById('rest-progress-bar');
     if (!pill || !txt || !bar) return;
@@ -530,6 +559,7 @@ Creá 4 ejercicios por cada sesión (${diasStr}). Devolvé SOLO JSON puro:
     }
 
     pill.classList.remove('translate-y-24', 'opacity-0', 'pointer-events-none');
+    if (lbl) lbl.textContent = state.descanso.etiqueta || 'Descanso';
     txt.textContent = formatearTiempo(state.descanso.restante);
     const pct = Math.min(100, Math.max(0, (state.descanso.restante / state.descanso.total) * 100));
     bar.style.width = `${pct}%`;
@@ -968,13 +998,20 @@ Creá 4 ejercicios por cada sesión (${diasStr}). Devolvé SOLO JSON puro:
           }
         </div>
 
-        <!-- Agregar ejercicio propio o desde la Base de Datos + Analizar cambios -->
+        <!-- Agregar ejercicio propio o desde la Base de Datos + Cardio + Analizar cambios -->
         <div class="space-y-3 pt-1">
-          <button type="button" onclick="AppFORGE.abrirModalAgregarEjercicio(null)"
-            class="w-full py-3.5 rounded-2xl border border-dashed border-gold/35 hover:border-gold/70 bg-gold/[0.03] font-mono text-[11px] uppercase tracking-[0.18em] text-gold-soft hover:text-gold-hi flex items-center justify-center gap-2 transition">
-            <span class="material-symbols-outlined text-[18px]">add</span>
-            <span>Agregar ejercicio (Base de datos o propio)</span>
-          </button>
+          <div class="grid grid-cols-2 gap-2.5">
+            <button type="button" onclick="AppFORGE.abrirModalAgregarEjercicio(null, 'todos')"
+              class="py-3.5 px-3 rounded-2xl border border-dashed border-gold/35 hover:border-gold/70 bg-gold/[0.03] font-mono text-[10.5px] uppercase tracking-[0.14em] text-gold-soft hover:text-gold-hi flex items-center justify-center gap-1.5 transition">
+              <span class="material-symbols-outlined text-[17px]">add</span>
+              <span>Ejercicio / BD</span>
+            </button>
+            <button type="button" onclick="AppFORGE.abrirModalAgregarEjercicio(null, 'cardio')"
+              class="py-3.5 px-3 rounded-2xl border border-dashed border-mint/35 hover:border-mint/70 bg-mint/[0.03] font-mono text-[10.5px] uppercase tracking-[0.14em] text-mint hover:text-ivory flex items-center justify-center gap-1.5 transition">
+              <span class="material-symbols-outlined text-[17px]">directions_run</span>
+              <span>+ Cardio (tiempo)</span>
+            </button>
+          </div>
 
           <button type="button" onclick="AppFORGE.analizarRutinaModificadaConCoach()"
             class="w-full py-3 rounded-full btn-ghost font-mono text-[10.5px] uppercase tracking-[0.16em] flex items-center justify-center gap-2">
@@ -996,8 +1033,13 @@ Creá 4 ejercicios por cada sesión (${diasStr}). Devolvé SOLO JSON puro:
 
   function renderTarjetaEjercicioTitus(ej, ejIdx) {
     const sensIdx = ej.sensacionIdx !== undefined ? ej.sensacionIdx : 2;
+    const esCardio = Boolean(ej.esCardio || ej.tipo === 'cardio');
     const esSinEquipo = Boolean(ej.esPesoCorporal);
     const knobLeftPct = sensIdx * 25;
+    const badgeCardio = esCardio ? obtenerBadgeCardio(ej.intensidadCardio || 'medio') : null;
+    const minPrimerBloque = esCardio
+      ? Math.max(1, Number(ej.series?.[0]?.tiempo_minutos) || Number(ej.duracionMinutos) || 15)
+      : 0;
 
     return `
       <article class="rounded-2xl card-forge p-4 sm:p-5 space-y-4">
@@ -1011,6 +1053,16 @@ Creá 4 ejercicios por cada sesión (${diasStr}). Devolvé SOLO JSON puro:
               <h2 class="font-editorial italic text-[21px] font-medium text-ivory leading-snug">
                 ${ej.nombre}
               </h2>
+              ${
+                esCardio
+                  ? `<div class="mt-1.5 mb-1">
+                      <span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full border font-mono text-[9px] uppercase tracking-[0.16em] ${badgeCardio.cls}">
+                        <span class="material-symbols-outlined text-[11px]">directions_run</span>
+                        <span>${badgeCardio.label}</span>
+                      </span>
+                    </div>`
+                  : ''
+              }
               <p class="font-mono text-[10px] text-sand mt-0.5 leading-relaxed">
                 ${ej.prescripcion.mensajeProgresion}
               </p>
@@ -1018,39 +1070,75 @@ Creá 4 ejercicios por cada sesión (${diasStr}). Devolvé SOLO JSON puro:
           </div>
           <button type="button" onclick="AppFORGE.abrirModalEjercicio(${ejIdx})"
             class="w-8 h-8 rounded-full border hairline text-sand hover:text-gold flex items-center justify-center shrink-0"
-            title="Ver técnica">
+            title="Ver técnica, editar o eliminar">
             <span class="material-symbols-outlined text-[16px]">more_horiz</span>
           </button>
         </div>
 
-        <!-- Encabezados de columnas de series -->
-        <div class="grid ${
-          esSinEquipo ? 'grid-cols-12' : 'grid-cols-12'
-        } items-center font-mono text-[9.5px] uppercase tracking-[0.18em] text-sandDim pt-1 border-t hairline">
-          <span class="col-span-2"></span>
+        <!-- Encabezados de columnas de series / bloques -->
+        <div class="grid grid-cols-12 items-center font-mono text-[9.5px] uppercase tracking-[0.18em] text-sandDim pt-1 border-t hairline">
+          <span class="col-span-2">${esCardio ? 'BLOQUE' : ''}</span>
           ${
-            esSinEquipo
-              ? `<span class="col-span-7 text-center">REPS</span>`
+            esCardio
+              ? `<span class="col-span-6 text-center">TIEMPO (MIN)</span>
+                 <span class="col-span-4 text-right text-gold/80">CRONO / OK</span>`
+              : esSinEquipo
+              ? `<span class="col-span-7 text-center">REPS</span>
+                 <span class="col-span-3 text-right text-gold/80">RIR ${ej.rirObjetivo ?? 2}</span>`
               : `<span class="col-span-4 text-center">REPS</span>
-                 <span class="col-span-4 text-center">KG</span>`
+                 <span class="col-span-4 text-center">KG</span>
+                 <span class="col-span-2 text-right text-gold/80">RIR ${ej.rirObjetivo ?? 2}</span>`
           }
-          <span class="col-span-3 sm:col-span-2 text-right text-gold/80">RIR ${ej.rirObjetivo ?? 2}</span>
         </div>
 
-        <!-- Filas de series con números romanos (I, II, III...) -->
+        <!-- Filas de series / bloques con números romanos (I, II, III...) -->
         <div class="space-y-2.5">
           ${ej.series
             .map((ser, sIdx) => {
               const ok = Boolean(ser.completada);
+              const mins = Math.max(1, Number(ser.tiempo_minutos) || Number(ej.duracionMinutos) || 15);
               return `
               <div class="grid grid-cols-12 items-center gap-1 py-1 ${ok ? 'opacity-90' : ''}">
-                <!-- Número romano de la serie -->
+                <!-- Número romano de la serie/bloque -->
                 <span class="col-span-2 font-display text-xs ${
                   ok ? 'text-gold' : 'text-sandDim'
                 } pl-1">${aRomano(sIdx)}</span>
 
                 ${
-                  esSinEquipo
+                  esCardio
+                    ? `
+                      <!-- SOLO TIEMPO EN MINUTOS PARA CARDIO -->
+                      <div class="col-span-6 flex items-center justify-center gap-2">
+                        <button type="button" onclick="AppFORGE.ajustarSerie(${ejIdx}, ${sIdx}, 'tiempo_minutos', -1)"
+                          class="w-8 h-8 rounded-full text-sand hover:text-ivory hover:bg-white/5 font-mono text-base transition">−</button>
+                        <div class="flex items-baseline justify-center gap-1">
+                          <input type="number" min="1" max="180" value="${mins}"
+                            oninput="AppFORGE.editarSerie(${ejIdx}, ${sIdx}, 'tiempo_minutos', this.value)"
+                            class="w-11 bg-transparent text-center font-mono text-base font-semibold text-ivory focus:outline-none" />
+                          <span class="font-mono text-[10px] uppercase text-sand">min</span>
+                        </div>
+                        <button type="button" onclick="AppFORGE.ajustarSerie(${ejIdx}, ${sIdx}, 'tiempo_minutos', 1)"
+                          class="w-8 h-8 rounded-full text-sand hover:text-gold hover:bg-white/5 font-mono text-base transition">+</button>
+                      </div>
+
+                      <!-- Cronómetro directo del bloque + Check dorado -->
+                      <div class="col-span-4 flex items-center justify-end gap-2">
+                        <button type="button" onclick="AppFORGE.iniciarDescanso(${mins * 60}, 'Cardio · ${badgeCardio.short}')"
+                          class="w-8 h-8 rounded-full border border-gold/30 text-gold hover:border-gold hover:bg-gold/10 flex items-center justify-center transition active:scale-90"
+                          title="Iniciar cronómetro de ${mins} min">
+                          <span class="material-symbols-outlined text-[16px]">play_arrow</span>
+                        </button>
+                        <button type="button" onclick="AppFORGE.alternarCheckSerie(${ejIdx}, ${sIdx})"
+                          class="w-8 h-8 rounded-full border flex items-center justify-center transition-all active:scale-90 ${
+                            ok
+                              ? 'border-gold bg-gold text-obsidian shadow-[0_0_12px_rgba(212,165,106,0.45)]'
+                              : 'border-gold/30 text-sand hover:border-gold'
+                          }">
+                          <span class="material-symbols-outlined text-[16px]">check</span>
+                        </button>
+                      </div>
+                    `
+                    : esSinEquipo
                     ? `
                       <!-- Solo REPS centrado para peso corporal sin herramientas -->
                       <div class="col-span-7 flex items-center justify-center gap-3">
@@ -1061,6 +1149,16 @@ Creá 4 ejercicios por cada sesión (${diasStr}). Devolvé SOLO JSON puro:
                           class="w-12 bg-transparent text-center font-mono text-base font-semibold text-ivory focus:outline-none" />
                         <button type="button" onclick="AppFORGE.ajustarSerie(${ejIdx}, ${sIdx}, 'reps', 1)"
                           class="w-8 h-8 rounded-full text-sand hover:text-gold hover:bg-white/5 font-mono text-base transition">+</button>
+                      </div>
+                      <div class="col-span-3 flex items-center justify-end gap-1.5">
+                        <button type="button" onclick="AppFORGE.alternarCheckSerie(${ejIdx}, ${sIdx})"
+                          class="w-8 h-8 rounded-full border flex items-center justify-center transition-all active:scale-90 ${
+                            ok
+                              ? 'border-gold bg-gold text-obsidian shadow-[0_0_12px_rgba(212,165,106,0.45)]'
+                              : 'border-gold/30 text-sand hover:border-gold'
+                          }">
+                          <span class="material-symbols-outlined text-[16px]">check</span>
+                        </button>
                       </div>
                     `
                     : `
@@ -1085,30 +1183,30 @@ Creá 4 ejercicios por cada sesión (${diasStr}). Devolvé SOLO JSON puro:
                         <button type="button" onclick="AppFORGE.ajustarSerie(${ejIdx}, ${sIdx}, 'peso', ${state.pasoDisco})"
                           class="w-7 h-7 rounded-full text-sand hover:text-gold hover:bg-white/5 font-mono text-sm">+</button>
                       </div>
+
+                      <!-- Check circular dorado -->
+                      <div class="col-span-2 flex items-center justify-end gap-1.5">
+                        <button type="button" onclick="AppFORGE.alternarCheckSerie(${ejIdx}, ${sIdx})"
+                          class="w-8 h-8 rounded-full border flex items-center justify-center transition-all active:scale-90 ${
+                            ok
+                              ? 'border-gold bg-gold text-obsidian shadow-[0_0_12px_rgba(212,165,106,0.45)]'
+                              : 'border-gold/30 text-sand hover:border-gold'
+                          }">
+                          <span class="material-symbols-outlined text-[16px]">check</span>
+                        </button>
+                      </div>
                     `
                 }
-
-                <!-- Check circular dorado -->
-                <div class="col-span-3 sm:col-span-2 flex items-center justify-end gap-1.5">
-                  <button type="button" onclick="AppFORGE.alternarCheckSerie(${ejIdx}, ${sIdx})"
-                    class="w-8 h-8 rounded-full border flex items-center justify-center transition-all active:scale-90 ${
-                      ok
-                        ? 'border-gold bg-gold text-obsidian shadow-[0_0_12px_rgba(212,165,106,0.45)]'
-                        : 'border-gold/30 text-sand hover:border-gold'
-                    }">
-                    <span class="material-symbols-outlined text-[16px]">check</span>
-                  </button>
-                </div>
               </div>
             `;
             })
             .join('')}
         </div>
 
-        <!-- Botón punteado + AGREGAR SERIE -->
+        <!-- Botón punteado + AGREGAR SERIE / BLOQUE -->
         <button type="button" onclick="AppFORGE.agregarSerie(${ejIdx})"
           class="w-full py-2.5 rounded-xl border border-dashed border-gold/25 hover:border-gold/50 font-mono text-[10px] uppercase tracking-[0.2em] text-sand hover:text-gold-soft transition">
-          + Agregar serie
+          ${esCardio ? '+ Agregar bloque de tiempo' : '+ Agregar serie'}
         </button>
 
         <!-- SLIDER DE SENSACIÓN ¿CÓMO SE SINTIÓ? (Firma visual y funcional de TITUS) -->
@@ -1117,7 +1215,9 @@ Creá 4 ejercicios por cada sesión (${diasStr}). Devolvé SOLO JSON puro:
             <div class="font-display text-[10px] uppercase tracking-[0.22em] text-sand">¿Cómo se sintió?</div>
             <div class="font-editorial italic text-xs text-sandDim mt-0.5">
               ${
-                esSinEquipo
+                esCardio
+                  ? 'Ajustá el tiempo de tu próximo bloque y sesión'
+                  : esSinEquipo
                   ? 'Ajustá las repeticiones de tu próxima serie y sesión'
                   : 'Ajustá el peso de tu próxima serie y sesión'
               }
@@ -1147,7 +1247,7 @@ Creá 4 ejercicios por cada sesión (${diasStr}). Devolvé SOLO JSON puro:
           </div>
         </div>
 
-        <!-- Pie minimalista: VER TÉCNICA · Tiempo descanso -->
+        <!-- Pie minimalista: VER TÉCNICA · Tiempo -->
         <div class="pt-2 border-t hairline flex items-center justify-between text-sand">
           <button type="button" onclick="AppFORGE.abrirModalEjercicio(${ejIdx})"
             class="flex items-center gap-2 text-sand hover:text-gold-soft transition">
@@ -1157,12 +1257,21 @@ Creá 4 ejercicios por cada sesión (${diasStr}). Devolvé SOLO JSON puro:
             <span class="font-mono text-[10px] uppercase tracking-[0.16em]">Ver técnica</span>
           </button>
 
-          <button type="button" onclick="AppFORGE.iniciarDescanso(${ej.descansoSegundos || 90})"
-            class="flex items-center gap-1.5 font-mono text-[11px] text-gold hover:text-gold-hi transition"
-            title="Iniciar cronómetro de descanso">
-            <span class="material-symbols-outlined text-[15px]">timer</span>
-            <span>${formatearTiempo(ej.descansoSegundos || 90)}</span>
-          </button>
+          ${
+            esCardio
+              ? `<button type="button" onclick="AppFORGE.iniciarDescanso(${minPrimerBloque * 60}, 'Cardio · ${badgeCardio.short}')"
+                  class="flex items-center gap-1.5 font-mono text-[11px] text-mint hover:text-ivory transition"
+                  title="Iniciar cronómetro de cardio">
+                  <span class="material-symbols-outlined text-[15px]">timer</span>
+                  <span>Iniciar ${minPrimerBloque}:00</span>
+                </button>`
+              : `<button type="button" onclick="AppFORGE.iniciarDescanso(${ej.descansoSegundos || 90}, 'Descanso')"
+                  class="flex items-center gap-1.5 font-mono text-[11px] text-gold hover:text-gold-hi transition"
+                  title="Iniciar cronómetro de descanso">
+                  <span class="material-symbols-outlined text-[15px]">timer</span>
+                  <span>${formatearTiempo(ej.descansoSegundos || 90)}</span>
+                </button>`
+          }
         </div>
       </article>
     `;
@@ -1462,7 +1571,7 @@ Creá 4 ejercicios por cada sesión (${diasStr}). Devolvé SOLO JSON puro:
       state.ejercicioGrafico = nombresDisponibles[0];
     }
 
-    let modoReps = false;
+    let modoGrafico = 'kg'; // 'kg' | 'reps' | 'min'
     const puntos = [...state.entrenamientos]
       .sort((a, b) => new Date(a.fecha) - new Date(b.fecha))
       .map((s) => {
@@ -1470,6 +1579,12 @@ Creá 4 ejercicios por cada sesión (${diasStr}). Devolvé SOLO JSON puro:
           (e) => (e.nombre || '').toLowerCase() === (state.ejercicioGrafico || '').toLowerCase()
         );
         if (!ej?.series?.length) return null;
+        const maxMin = Math.max(...ej.series.map((sr) => Number(sr.tiempo_minutos) || 0));
+        if (ej.esCardio || maxMin > 0) {
+          modoGrafico = 'min';
+          const totalMin = ej.series.reduce((acc, sr) => acc + (Number(sr.tiempo_minutos) || 0), 0);
+          return { fecha: s.fecha.slice(5), valor: totalMin };
+        }
         const maxPeso = Math.max(...ej.series.map((sr) => Number(sr.peso) || 0));
         if (maxPeso > 0) {
           return {
@@ -1477,7 +1592,7 @@ Creá 4 ejercicios por cada sesión (${diasStr}). Devolvé SOLO JSON puro:
             valor: Math.max(...ej.series.map((sr) => window.MotorEntrenamiento.calcular1RMEpley(sr.peso, sr.reps)))
           };
         }
-        modoReps = true;
+        modoGrafico = 'reps';
         return { fecha: s.fecha.slice(5), valor: Math.max(...ej.series.map((sr) => Number(sr.reps) || 0)) };
       })
       .filter(Boolean);
@@ -1511,7 +1626,11 @@ Creá 4 ejercicios por cada sesión (${diasStr}). Devolvé SOLO JSON puro:
           <div>
             <div class="font-display text-xs uppercase tracking-[0.18em] text-ivory">Evolución</div>
             <div class="font-editorial italic text-sm text-sand">${
-              modoReps ? 'Repeticiones máximas por sesión' : '1RM estimado (Epley)'
+              modoGrafico === 'min'
+                ? 'Minutos de cardio por sesión'
+                : modoGrafico === 'reps'
+                ? 'Repeticiones máximas por sesión'
+                : '1RM estimado (Epley)'
             }</div>
           </div>
           ${
@@ -1525,7 +1644,7 @@ Creá 4 ejercicios por cada sesión (${diasStr}). Devolvé SOLO JSON puro:
               : ''
           }
         </div>
-        ${renderCurvaDorada(puntos, modoReps ? 'reps' : 'kg')}
+        ${renderCurvaDorada(puntos, modoGrafico)}
       </section>
 
       <!-- Peso corporal -->
@@ -1567,6 +1686,22 @@ Creá 4 ejercicios por cada sesión (${diasStr}). Devolvé SOLO JSON puro:
                     <div class="space-y-1 pt-2 border-t hairline">
                       ${(ses.ejercicios || [])
                         .map((e) => {
+                          const esCardioHist =
+                            Boolean(e.esCardio) ||
+                            (e.series || []).some((sr) => (Number(sr.tiempo_minutos) || 0) > 0);
+                          if (esCardioHist) {
+                            const totalMin = (e.series || []).reduce(
+                              (acc, sr) => acc + (Number(sr.tiempo_minutos) || 0),
+                              0
+                            );
+                            const badge = obtenerBadgeCardio(e.intensidadCardio || 'medio');
+                            return `
+                              <div class="flex items-center justify-between text-xs">
+                                <span class="font-editorial italic text-[15px] text-ivory/90 truncate pr-2">${e.nombre}</span>
+                                <span class="font-mono text-[11px] text-mint shrink-0">${totalMin} min · ${badge.short}</span>
+                              </div>
+                            `;
+                          }
                           const mejor = (e.series || []).reduce(
                             (b, c) => ((c.peso || 0) >= (b.peso || 0) && (c.reps || 0) >= (b.reps || 0) ? c : b),
                             e.series?.[0] || { peso: 0, reps: 0 }
@@ -1636,7 +1771,7 @@ Creá 4 ejercicios por cada sesión (${diasStr}). Devolvé SOLO JSON puro:
           <circle cx="${c.x}" cy="${c.y}" r="4" fill="#F7E2B5" stroke="#060504" stroke-width="1.5" />
           <text x="${c.x}" y="${c.y - 9}" text-anchor="middle" fill="#F5F2E8" font-size="10" font-family="JetBrains Mono">${Math.round(
               c.valor
-            )}${unidad === 'reps' ? 'r' : ''}</text>
+            )}${unidad === 'reps' ? 'r' : unidad === 'min' ? 'm' : ''}</text>
           <text x="${c.x}" y="${h - 5}" text-anchor="middle" fill="#7A6C54" font-size="9" font-family="JetBrains Mono">${
               c.fecha
             }</text>
@@ -1765,6 +1900,8 @@ Creá 4 ejercicios por cada sesión (${diasStr}). Devolvé SOLO JSON puro:
   function abrirModalEjercicio(ejIdx) {
     const ej = obtenerSesionActual()?.ejercicios?.[ejIdx];
     if (!ej) return;
+    const esCardio = Boolean(ej.esCardio || ej.tipo === 'cardio');
+    const badgeCardio = esCardio ? obtenerBadgeCardio(ej.intensidadCardio || 'medio') : null;
 
     abrirModalHTML(`
       <div class="space-y-5">
@@ -1772,6 +1909,16 @@ Creá 4 ejercicios por cada sesión (${diasStr}). Devolvé SOLO JSON puro:
           <div>
             <span class="font-mono text-[10px] uppercase tracking-[0.2em] text-gold">${ej.grupoMuscular}</span>
             <h3 class="font-editorial italic text-2xl font-medium text-ivory mt-0.5">${ej.nombre}</h3>
+            ${
+              esCardio
+                ? `<div class="mt-2">
+                    <span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full border font-mono text-[9.5px] uppercase tracking-[0.16em] ${badgeCardio.cls}">
+                      <span class="material-symbols-outlined text-[12px]">directions_run</span>
+                      <span>${badgeCardio.label} · Solo tiempo</span>
+                    </span>
+                  </div>`
+                : ''
+            }
           </div>
           <button type="button" onclick="AppFORGE.cerrarModal()"
             class="w-8 h-8 rounded-full border hairline text-sand hover:text-ivory flex items-center justify-center">
@@ -1811,7 +1958,7 @@ Creá 4 ejercicios por cada sesión (${diasStr}). Devolvé SOLO JSON puro:
             <span class="material-symbols-outlined text-[15px] text-gold">edit</span>
             <span>Editar</span>
           </button>
-          <button type="button" onclick="AppFORGE.abrirModalAgregarEjercicio(${ejIdx})"
+          <button type="button" onclick="AppFORGE.abrirModalAgregarEjercicio(${ejIdx}, '${esCardio ? 'cardio' : 'todos'}')"
             class="py-2.5 px-2 rounded-xl card-forge hover:border-gold/50 text-gold-soft font-mono text-[10px] uppercase tracking-wider flex items-center justify-center gap-1 transition">
             <span class="material-symbols-outlined text-[15px] text-gold">swap_horiz</span>
             <span>Cambiar</span>
@@ -1835,15 +1982,23 @@ Creá 4 ejercicios por cada sesión (${diasStr}). Devolvé SOLO JSON puro:
     reemplazarIdx: null,
     modo: 'buscar', // 'buscar' | 'propio'
     soloMiEquipo: true,
+    categoriaFiltro: 'todos', // 'todos' | 'fuerza' | 'cardio'
+    intensidadCardio: 'todas', // 'todas' | 'intenso' | 'medio' | 'bajo'
+    modalidadPropio: 'peso', // 'peso' | 'corporal' | 'cardio'
     query: '',
     catalogo: []
   };
 
-  async function abrirModalAgregarEjercicio(reemplazarIdx = null) {
+  async function abrirModalAgregarEjercicio(reemplazarIdx = null, filtroInicial = 'todos') {
+    const eqUsuario = state.userProfile?.equipamiento || 'gimnasio';
     buscadorState.reemplazarIdx = reemplazarIdx;
     buscadorState.modo = 'buscar';
     buscadorState.query = '';
     buscadorState.soloMiEquipo = true;
+    buscadorState.categoriaFiltro = filtroInicial || 'todos';
+    buscadorState.intensidadCardio = 'todas';
+    buscadorState.modalidadPropio =
+      filtroInicial === 'cardio' ? 'cardio' : eqUsuario === 'peso_corporal' ? 'corporal' : 'peso';
     buscadorState.catalogo = await window.MotorEntrenamiento.obtenerCatalogoCompleto();
     renderModalBuscadorEjercicio();
   }
@@ -1855,6 +2010,26 @@ Creá 4 ejercicios por cada sesión (${diasStr}). Devolvé SOLO JSON puro:
 
   function cambiarFiltroBuscador(soloEquipo) {
     buscadorState.soloMiEquipo = soloEquipo;
+    renderModalBuscadorEjercicio();
+  }
+
+  function cambiarCategoriaBuscador(cat) {
+    buscadorState.categoriaFiltro = cat;
+    if (cat !== 'cardio') {
+      buscadorState.intensidadCardio = 'todas';
+    } else {
+      buscadorState.modalidadPropio = 'cardio';
+    }
+    renderModalBuscadorEjercicio();
+  }
+
+  function cambiarIntensidadBuscador(nivelInt) {
+    buscadorState.intensidadCardio = nivelInt;
+    renderModalBuscadorEjercicio();
+  }
+
+  function cambiarModalidadPropio(mod) {
+    buscadorState.modalidadPropio = mod;
     renderModalBuscadorEjercicio();
   }
 
@@ -1871,18 +2046,29 @@ Creá 4 ejercicios por cada sesión (${diasStr}). Devolvé SOLO JSON puro:
     const q = buscadorState.query.trim().toLowerCase();
 
     const filtrados = buscadorState.catalogo.filter((ej) => {
+      const esCardio = Boolean(ej.esCardio || ej.tipo === 'cardio' || ej.categoria === 'Cardio');
+      if (buscadorState.categoriaFiltro === 'cardio' && !esCardio) return false;
+      if (buscadorState.categoriaFiltro === 'fuerza' && esCardio) return false;
+      if (
+        buscadorState.categoriaFiltro === 'cardio' &&
+        buscadorState.intensidadCardio !== 'todas' &&
+        ej.intensidadCardio !== buscadorState.intensidadCardio
+      ) {
+        return false;
+      }
       if (buscadorState.soloMiEquipo && !(ej.equipamiento || []).includes(eqUsuario)) {
         return false;
       }
       if (!q) return true;
-      const texto = `${ej.nombre} ${ej.grupoMuscular} ${ej.categoria} ${(ej.niveles || []).join(' ')}`.toLowerCase();
+      const intTxt = esCardio ? obtenerBadgeCardio(ej.intensidadCardio).label : '';
+      const texto = `${ej.nombre} ${ej.grupoMuscular} ${ej.categoria} ${intTxt} ${(ej.niveles || []).join(' ')}`.toLowerCase();
       return texto.includes(q);
     });
 
     if (!filtrados.length) {
       return `
         <div class="p-6 rounded-2xl card-forge text-center space-y-2">
-          <p class="text-xs text-sand">No encontramos ejercicios con "${buscadorState.query}".</p>
+          <p class="text-xs text-sand">No encontramos ejercicios con este filtro${buscadorState.query ? ` ("${buscadorState.query}")` : ''}.</p>
           <button type="button" onclick="AppFORGE.cambiarModoBuscador('propio')"
             class="px-4 py-2 rounded-full btn-gold font-display text-[10px] font-bold uppercase tracking-wider">
             + Crearlo como ejercicio propio
@@ -1893,30 +2079,39 @@ Creá 4 ejercicios por cada sesión (${diasStr}). Devolvé SOLO JSON puro:
 
     const rIdx = buscadorState.reemplazarIdx === null ? 'null' : buscadorState.reemplazarIdx;
     return filtrados
-      .map(
-        (ej) => `
+      .map((ej) => {
+        const esCardio = Boolean(ej.esCardio || ej.tipo === 'cardio');
+        const badge = esCardio ? obtenerBadgeCardio(ej.intensidadCardio || 'medio') : null;
+        return `
       <button type="button" onclick="AppFORGE.seleccionarEjercicioDeBD('${ej.id}', ${rIdx})"
         class="w-full text-left p-3.5 rounded-xl bg-obsidian hover:bg-obsidian3 border hairline hover:border-gold/45 transition flex items-center justify-between gap-3">
         <div class="min-w-0">
           <div class="font-editorial italic text-[17px] text-ivory truncate">${ej.nombre}</div>
-          <div class="flex flex-wrap items-center gap-1.5 mt-0.5 font-mono text-[9.5px] text-sand">
-            <span>${ej.grupoMuscular}</span>
-            <span>·</span>
-            <span class="text-gold/90 uppercase">${(ej.niveles || []).join(' / ')}</span>
-          </div>
+          ${
+            esCardio
+              ? `<div class="flex flex-wrap items-center gap-1.5 mt-1 font-mono text-[9.5px]">
+                  <span class="px-2 py-0.5 rounded-full border ${badge.cls} uppercase">${badge.short}</span>
+                  <span class="text-sand">${ej.duracionMinutos || 15} min · Solo tiempo</span>
+                </div>`
+              : `<div class="flex flex-wrap items-center gap-1.5 mt-0.5 font-mono text-[9.5px] text-sand">
+                  <span>${ej.grupoMuscular}</span>
+                  <span>·</span>
+                  <span class="text-gold/90 uppercase">${(ej.niveles || []).join(' / ')}</span>
+                </div>`
+          }
         </div>
         <span class="material-symbols-outlined text-gold text-[18px] shrink-0">add_circle</span>
       </button>
-    `
-      )
+    `;
+      })
       .join('');
   }
 
   function renderModalBuscadorEjercicio() {
     const esReemplazo = buscadorState.reemplazarIdx !== null;
     const esBuscar = buscadorState.modo === 'buscar';
-    const eqUsuario = state.userProfile?.equipamiento || 'gimnasio';
-    const defaultBodyweight = eqUsuario === 'peso_corporal';
+    const mod = buscadorState.modalidadPropio;
+    const esPropioCardio = mod === 'cardio';
 
     abrirModalHTML(`
       <div class="space-y-4">
@@ -1926,7 +2121,7 @@ Creá 4 ejercicios por cada sesión (${diasStr}). Devolvé SOLO JSON puro:
               ${esReemplazo ? 'REEMPLAZAR EJERCICIO' : 'SUMAR A LA SESIÓN'}
             </div>
             <h3 class="font-display text-lg uppercase tracking-wider text-ivory mt-0.5">
-              ${esBuscar ? 'Base de datos FORGE' : 'Nuevo ejercicio propio'}
+              ${esBuscar ? 'Base de datos FORGE' : esPropioCardio ? 'Nuevo Cardio (Solo tiempo)' : 'Nuevo ejercicio propio'}
             </h3>
           </div>
           <button type="button" onclick="AppFORGE.cerrarModal()"
@@ -1957,8 +2152,63 @@ Creá 4 ejercicios por cada sesión (${diasStr}). Devolvé SOLO JSON puro:
               <div class="space-y-3">
                 <input type="text" value="${buscadorState.query}" autofocus
                   oninput="AppFORGE.actualizarQueryBuscador(this.value)"
-                  placeholder="Buscar por nombre, músculo o nivel..."
+                  placeholder="${
+                    buscadorState.categoriaFiltro === 'cardio'
+                      ? 'Buscar Tabata, HIIT, sin impacto, caminata...'
+                      : 'Buscar por nombre, músculo, cardio o nivel...'
+                  }"
                   class="w-full px-4 py-3 rounded-xl bg-obsidian border hairline text-sm text-ivory placeholder:text-sandDim focus:outline-none focus:border-gold" />
+
+                <!-- Filtro de categoría: Todos / Fuerza / Cardio -->
+                <div class="grid grid-cols-3 gap-1.5">
+                  ${[
+                    { id: 'todos', label: 'Todos' },
+                    { id: 'fuerza', label: 'Fuerza' },
+                    { id: 'cardio', label: 'Cardio' }
+                  ]
+                    .map(
+                      (c) => `
+                    <button type="button" onclick="AppFORGE.cambiarCategoriaBuscador('${c.id}')"
+                      class="py-1.5 rounded-xl font-mono text-[10px] uppercase tracking-wider border transition ${
+                        buscadorState.categoriaFiltro === c.id
+                          ? c.id === 'cardio'
+                            ? 'border-mint bg-mint/15 text-mint font-semibold'
+                            : 'border-gold bg-gold/15 text-gold-hi font-semibold'
+                          : 'hairline text-sand hover:text-ivory'
+                      }">
+                      ${c.label}
+                    </button>
+                  `
+                    )
+                    .join('')}
+                </div>
+
+                <!-- Sub-filtros de intensidad cuando está seleccionado CARDIO -->
+                ${
+                  buscadorState.categoriaFiltro === 'cardio'
+                    ? `<div class="flex flex-wrap gap-1.5">
+                        ${[
+                          { id: 'todas', label: 'Todas' },
+                          { id: 'intenso', label: 'Intenso (HIIT/Tabata)' },
+                          { id: 'medio', label: 'Medio' },
+                          { id: 'bajo', label: 'Bajo (Sin impacto)' }
+                        ]
+                          .map(
+                            (it) => `
+                          <button type="button" onclick="AppFORGE.cambiarIntensidadBuscador('${it.id}')"
+                            class="px-2.5 py-1 rounded-full font-mono text-[9.5px] uppercase tracking-wider border transition ${
+                              buscadorState.intensidadCardio === it.id
+                                ? 'border-gold bg-gold/15 text-gold-hi font-semibold'
+                                : 'hairline text-sand hover:text-ivory'
+                            }">
+                            ${it.label}
+                          </button>
+                        `
+                          )
+                          .join('')}
+                      </div>`
+                    : ''
+                }
 
                 <div class="flex items-center gap-2">
                   <button type="button" onclick="AppFORGE.cambiarFiltroBuscador(true)"
@@ -1979,70 +2229,129 @@ Creá 4 ejercicios por cada sesión (${diasStr}). Devolvé SOLO JSON puro:
                   </button>
                 </div>
 
-                <div id="buscador-resultados-lista" class="space-y-2 max-h-[46dvh] overflow-y-auto pr-0.5">
+                <div id="buscador-resultados-lista" class="space-y-2 max-h-[40dvh] overflow-y-auto pr-0.5">
                   ${renderResultadosBuscadorHTML()}
                 </div>
               </div>
             `
             : `
               <form onsubmit="AppFORGE.guardarEjercicioPropio(event)" class="space-y-3.5">
+                <!-- Modalidad del ejercicio -->
+                <div>
+                  <label class="font-mono text-[10px] uppercase text-sand block mb-1.5">Modalidad</label>
+                  <div class="grid grid-cols-3 gap-1.5">
+                    ${[
+                      { id: 'peso', label: 'Con peso (kg)' },
+                      { id: 'corporal', label: 'Peso corporal' },
+                      { id: 'cardio', label: 'Cardio (tiempo)' }
+                    ]
+                      .map(
+                        (m) => `
+                      <button type="button" onclick="AppFORGE.cambiarModalidadPropio('${m.id}')"
+                        class="py-2 px-1.5 rounded-xl font-mono text-[9.5px] uppercase tracking-wider border transition ${
+                          mod === m.id
+                            ? m.id === 'cardio'
+                              ? 'border-mint bg-mint/15 text-mint font-semibold'
+                              : 'border-gold bg-gold/15 text-gold-hi font-semibold'
+                            : 'hairline text-sand hover:text-ivory'
+                        }">
+                        ${m.label}
+                      </button>
+                    `
+                      )
+                      .join('')}
+                  </div>
+                </div>
+
                 <div>
                   <label class="font-mono text-[10px] uppercase text-sand block mb-1">Nombre del ejercicio</label>
-                  <input id="custom-ej-nombre" type="text" required placeholder="Ej: Flexiones con banda elástica"
+                  <input id="custom-ej-nombre" type="text" required placeholder="${
+                    esPropioCardio
+                      ? 'Ej: Tabata en bici fija / Caminata en cinta'
+                      : 'Ej: Flexiones con banda elástica'
+                  }"
                     class="w-full px-3.5 py-2.5 rounded-xl bg-obsidian border hairline text-sm text-ivory focus:outline-none focus:border-gold" />
                 </div>
 
-                <div class="grid grid-cols-2 gap-3">
-                  <div>
-                    <label class="font-mono text-[10px] uppercase text-sand block mb-1">Grupo muscular</label>
-                    <select id="custom-ej-musculo"
-                      class="w-full px-3 py-2.5 rounded-xl bg-obsidian border hairline text-xs text-ivory focus:outline-none focus:border-gold">
-                      <option value="Pectoral">Pectoral</option>
-                      <option value="Espalda / Dorsal">Espalda / Dorsal</option>
-                      <option value="Cuádriceps / Pierna">Cuádriceps / Pierna</option>
-                      <option value="Isquios / Glúteo">Isquios / Glúteo</option>
-                      <option value="Hombros">Hombros</option>
-                      <option value="Bíceps / Tríceps">Bíceps / Tríceps</option>
-                      <option value="Core / Abdomen">Core / Abdomen</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label class="font-mono text-[10px] uppercase text-sand block mb-1">Tipo</label>
-                    <select id="custom-ej-tipo"
-                      class="w-full px-3 py-2.5 rounded-xl bg-obsidian border hairline text-xs text-ivory focus:outline-none focus:border-gold">
-                      <option value="compuesto">Compuesto</option>
-                      <option value="aislado">Aislado</option>
-                    </select>
-                  </div>
-                </div>
+                ${
+                  esPropioCardio
+                    ? `
+                      <div>
+                        <label class="font-mono text-[10px] uppercase text-sand block mb-1">Intensidad de Cardio</label>
+                        <select id="custom-cardio-intensidad"
+                          class="w-full px-3 py-2.5 rounded-xl bg-obsidian border hairline text-xs text-ivory focus:outline-none focus:border-gold">
+                          <option value="intenso">Intenso (HIIT / Tabata)</option>
+                          <option value="medio" selected>Medio (Aeróbico continuo)</option>
+                          <option value="bajo">Bajo (Sin impacto)</option>
+                        </select>
+                      </div>
 
-                <div class="grid grid-cols-3 gap-2.5">
-                  <div>
-                    <label class="font-mono text-[10px] uppercase text-sand block mb-1">Series</label>
-                    <input id="custom-ej-series" type="number" min="1" max="8" value="3"
-                      class="w-full px-3 py-2 rounded-xl bg-obsidian border hairline font-mono text-sm text-ivory text-center" />
-                  </div>
-                  <div>
-                    <label class="font-mono text-[10px] uppercase text-sand block mb-1">Reps</label>
-                    <input id="custom-ej-reps" type="number" min="1" max="50" value="10"
-                      class="w-full px-3 py-2 rounded-xl bg-obsidian border hairline font-mono text-sm text-ivory text-center" />
-                  </div>
-                  <div>
-                    <label class="font-mono text-[10px] uppercase text-sand block mb-1">Desc. (s)</label>
-                    <input id="custom-ej-desc" type="number" min="15" max="300" step="15" value="90"
-                      class="w-full px-3 py-2 rounded-xl bg-obsidian border hairline font-mono text-sm text-ivory text-center" />
-                  </div>
-                </div>
+                      <div class="grid grid-cols-3 gap-2.5">
+                        <div>
+                          <label class="font-mono text-[10px] uppercase text-sand block mb-1">Bloques</label>
+                          <input id="custom-ej-series" type="number" min="1" max="8" value="1"
+                            class="w-full px-3 py-2 rounded-xl bg-obsidian border hairline font-mono text-sm text-ivory text-center" />
+                        </div>
+                        <div>
+                          <label class="font-mono text-[10px] uppercase text-sand block mb-1">Minutos</label>
+                          <input id="custom-cardio-min" type="number" min="1" max="180" value="15"
+                            class="w-full px-3 py-2 rounded-xl bg-obsidian border hairline font-mono text-sm text-ivory text-center" />
+                        </div>
+                        <div>
+                          <label class="font-mono text-[10px] uppercase text-sand block mb-1">Pausa (s)</label>
+                          <input id="custom-ej-desc" type="number" min="15" max="300" step="15" value="60"
+                            class="w-full px-3 py-2 rounded-xl bg-obsidian border hairline font-mono text-sm text-ivory text-center" />
+                        </div>
+                      </div>
+                    `
+                    : `
+                      <div class="grid grid-cols-2 gap-3">
+                        <div>
+                          <label class="font-mono text-[10px] uppercase text-sand block mb-1">Grupo muscular</label>
+                          <select id="custom-ej-musculo"
+                            class="w-full px-3 py-2.5 rounded-xl bg-obsidian border hairline text-xs text-ivory focus:outline-none focus:border-gold">
+                            <option value="Pectoral">Pectoral</option>
+                            <option value="Espalda / Dorsal">Espalda / Dorsal</option>
+                            <option value="Cuádriceps / Pierna">Cuádriceps / Pierna</option>
+                            <option value="Isquios / Glúteo">Isquios / Glúteo</option>
+                            <option value="Hombros">Hombros</option>
+                            <option value="Bíceps / Tríceps">Bíceps / Tríceps</option>
+                            <option value="Core / Abdomen">Core / Abdomen</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label class="font-mono text-[10px] uppercase text-sand block mb-1">Tipo</label>
+                          <select id="custom-ej-tipo"
+                            class="w-full px-3 py-2.5 rounded-xl bg-obsidian border hairline text-xs text-ivory focus:outline-none focus:border-gold">
+                            <option value="compuesto">Compuesto</option>
+                            <option value="aislado">Aislado</option>
+                          </select>
+                        </div>
+                      </div>
 
-                <label class="flex items-center gap-2.5 p-3 rounded-xl card-forge cursor-pointer">
-                  <input id="custom-ej-bw" type="checkbox" ${defaultBodyweight ? 'checked' : ''}
-                    class="accent-[#D4A56A] w-4 h-4" />
-                  <span class="text-xs text-ivory">Es ejercicio de solo peso corporal (sin kilos)</span>
-                </label>
+                      <div class="grid grid-cols-3 gap-2.5">
+                        <div>
+                          <label class="font-mono text-[10px] uppercase text-sand block mb-1">Series</label>
+                          <input id="custom-ej-series" type="number" min="1" max="8" value="3"
+                            class="w-full px-3 py-2 rounded-xl bg-obsidian border hairline font-mono text-sm text-ivory text-center" />
+                        </div>
+                        <div>
+                          <label class="font-mono text-[10px] uppercase text-sand block mb-1">Reps</label>
+                          <input id="custom-ej-reps" type="number" min="1" max="50" value="10"
+                            class="w-full px-3 py-2 rounded-xl bg-obsidian border hairline font-mono text-sm text-ivory text-center" />
+                        </div>
+                        <div>
+                          <label class="font-mono text-[10px] uppercase text-sand block mb-1">Desc. (s)</label>
+                          <input id="custom-ej-desc" type="number" min="15" max="300" step="15" value="90"
+                            class="w-full px-3 py-2 rounded-xl bg-obsidian border hairline font-mono text-sm text-ivory text-center" />
+                        </div>
+                      </div>
+                    `
+                }
 
                 <button type="submit"
                   class="w-full py-3.5 rounded-full btn-gold font-display text-xs font-bold tracking-[0.2em] uppercase">
-                  ${esReemplazo ? 'Reemplazar con este ejercicio' : 'Agregar a mi sesión'}
+                  ${esReemplazo ? 'Reemplazar con este ejercicio' : esPropioCardio ? 'Agregar Cardio a mi sesión' : 'Agregar a mi sesión'}
                 </button>
               </form>
             `
@@ -2086,18 +2395,39 @@ Creá 4 ejercicios por cada sesión (${diasStr}). Devolvé SOLO JSON puro:
     const nombre = (document.getElementById('custom-ej-nombre')?.value || '').trim();
     if (!nombre) return;
 
-    const musculo = document.getElementById('custom-ej-musculo')?.value || 'Personalizado';
-    const tipo = document.getElementById('custom-ej-tipo')?.value || 'compuesto';
-    const series = Number(document.getElementById('custom-ej-series')?.value) || 3;
-    const reps = Number(document.getElementById('custom-ej-reps')?.value) || 10;
-    const desc = Number(document.getElementById('custom-ej-desc')?.value) || 90;
-    const esPesoCorporal = Boolean(document.getElementById('custom-ej-bw')?.checked);
+    const mod = buscadorState.modalidadPropio || 'peso';
+    const esCardio = mod === 'cardio';
+    const esPesoCorporal = mod === 'corporal' || esCardio;
+    const series = Number(document.getElementById('custom-ej-series')?.value) || (esCardio ? 1 : 3);
+    const desc = Number(document.getElementById('custom-ej-desc')?.value) || (esCardio ? 60 : 90);
 
-    const listo = await window.MotorEntrenamiento.construirEjercicioListo(
-      {
+    let payloadEjercicio;
+    if (esCardio) {
+      const intensidadCardio = document.getElementById('custom-cardio-intensidad')?.value || 'medio';
+      const duracionMinutos = Math.max(1, Number(document.getElementById('custom-cardio-min')?.value) || 15);
+      const badge = obtenerBadgeCardio(intensidadCardio);
+      payloadEjercicio = {
+        nombre,
+        grupoMuscular: `Cardio · ${badge.short}`,
+        tipo: 'cardio',
+        esCardio: true,
+        intensidadCardio,
+        duracionMinutos,
+        esPesoCorporal: true,
+        pesoSugerido: 0,
+        seriesObjetivo: series,
+        descansoSegundos: desc,
+        porQueEsteEjercicio: `Cardio ${badge.short} agregado manualmente por vos (solo por tiempo).`
+      };
+    } else {
+      const musculo = document.getElementById('custom-ej-musculo')?.value || 'Personalizado';
+      const tipo = document.getElementById('custom-ej-tipo')?.value || 'compuesto';
+      const reps = Number(document.getElementById('custom-ej-reps')?.value) || 10;
+      payloadEjercicio = {
         nombre,
         grupoMuscular: musculo,
         tipo,
+        esCardio: false,
         esPesoCorporal,
         pesoSugerido: esPesoCorporal ? 0 : 20,
         seriesObjetivo: series,
@@ -2106,7 +2436,11 @@ Creá 4 ejercicios por cada sesión (${diasStr}). Devolvé SOLO JSON puro:
         repsSugeridas: reps,
         descansoSegundos: desc,
         porQueEsteEjercicio: 'Ejercicio personalizado agregado por vos.'
-      },
+      };
+    }
+
+    const listo = await window.MotorEntrenamiento.construirEjercicioListo(
+      payloadEjercicio,
       state.userProfile,
       state.entrenamientos,
       state.modoDeload
@@ -2118,7 +2452,7 @@ Creá 4 ejercicios por cada sesión (${diasStr}). Devolvé SOLO JSON puro:
       mostrarToastRecalibro('EJERCICIO REEMPLAZADO', `Actualizado a ${listo.nombre}.`);
     } else {
       sesion.ejercicios.push(listo);
-      mostrarToastRecalibro('EJERCICIO CREADO', `${listo.nombre} sumado a tu sesión.`);
+      mostrarToastRecalibro(esCardio ? 'CARDIO AGREGADO' : 'EJERCICIO CREADO', `${listo.nombre} sumado a tu sesión.`);
     }
 
     sesion.modificadaPorUsuario = true;
@@ -2127,9 +2461,27 @@ Creá 4 ejercicios por cada sesión (${diasStr}). Devolvé SOLO JSON puro:
     renderizar();
   }
 
-  function abrirModalEditarEjercicio(ejIdx) {
+  let edicionModalidadActual = 'peso';
+
+  function cambiarModalidadEdicion(ejIdx, mod) {
+    edicionModalidadActual = mod;
+    abrirModalEditarEjercicio(ejIdx, mod);
+  }
+
+  function abrirModalEditarEjercicio(ejIdx, modalidadForzada = null) {
     const ej = obtenerSesionActual()?.ejercicios?.[ejIdx];
     if (!ej) return;
+
+    const mod =
+      modalidadForzada ||
+      (ej.esCardio || ej.tipo === 'cardio' ? 'cardio' : ej.esPesoCorporal ? 'corporal' : 'peso');
+    edicionModalidadActual = mod;
+    const esCardio = mod === 'cardio';
+    const intActual = ej.intensidadCardio || 'medio';
+    const minActual = Math.max(
+      1,
+      Number(ej.series?.[0]?.tiempo_minutos) || Number(ej.duracionMinutos) || 15
+    );
 
     abrirModalHTML(`
       <form onsubmit="AppFORGE.guardarEdicionEjercicio(event, ${ejIdx})" class="space-y-4">
@@ -2144,54 +2496,103 @@ Creá 4 ejercicios por cada sesión (${diasStr}). Devolvé SOLO JSON puro:
           </button>
         </div>
 
+        <!-- Selector de modalidad -->
+        <div>
+          <label class="font-mono text-[10px] uppercase text-sand block mb-1.5">Modalidad</label>
+          <div class="grid grid-cols-3 gap-1.5">
+            ${[
+              { id: 'peso', label: 'Con peso (kg)' },
+              { id: 'corporal', label: 'Peso corporal' },
+              { id: 'cardio', label: 'Cardio (tiempo)' }
+            ]
+              .map(
+                (m) => `
+              <button type="button" onclick="AppFORGE.cambiarModalidadEdicion(${ejIdx}, '${m.id}')"
+                class="py-2 px-1.5 rounded-xl font-mono text-[9.5px] uppercase tracking-wider border transition ${
+                  mod === m.id
+                    ? m.id === 'cardio'
+                      ? 'border-mint bg-mint/15 text-mint font-semibold'
+                      : 'border-gold bg-gold/15 text-gold-hi font-semibold'
+                    : 'hairline text-sand hover:text-ivory'
+                }">
+                ${m.label}
+              </button>
+            `
+              )
+              .join('')}
+          </div>
+        </div>
+
         <div>
           <label class="font-mono text-[10px] uppercase text-sand block mb-1">Nombre</label>
           <input id="edit-ej-nombre" type="text" required value="${ej.nombre.replace(/"/g, '&quot;')}"
             class="w-full px-3.5 py-2.5 rounded-xl bg-obsidian border hairline text-sm text-ivory focus:outline-none focus:border-gold" />
         </div>
 
-        <div class="grid grid-cols-2 gap-3">
-          <div>
-            <label class="font-mono text-[10px] uppercase text-sand block mb-1">Músculo</label>
-            <input id="edit-ej-musculo" type="text" value="${(ej.grupoMuscular || '').replace(/"/g, '&quot;')}"
-              class="w-full px-3.5 py-2.5 rounded-xl bg-obsidian border hairline text-xs text-ivory focus:outline-none focus:border-gold" />
-          </div>
-          <div>
-            <label class="font-mono text-[10px] uppercase text-sand block mb-1">Tipo</label>
-            <select id="edit-ej-tipo"
-              class="w-full px-3 py-2.5 rounded-xl bg-obsidian border hairline text-xs text-ivory focus:outline-none focus:border-gold">
-              <option value="compuesto" ${ej.tipo === 'compuesto' ? 'selected' : ''}>Compuesto</option>
-              <option value="aislado" ${ej.tipo === 'aislado' ? 'selected' : ''}>Aislado</option>
-            </select>
-          </div>
-        </div>
+        ${
+          esCardio
+            ? `
+              <div>
+                <label class="font-mono text-[10px] uppercase text-sand block mb-1">Intensidad de Cardio</label>
+                <select id="edit-cardio-intensidad"
+                  class="w-full px-3.5 py-2.5 rounded-xl bg-obsidian border hairline text-xs text-ivory focus:outline-none focus:border-gold">
+                  <option value="intenso" ${intActual === 'intenso' ? 'selected' : ''}>Intenso (HIIT / Tabata)</option>
+                  <option value="medio" ${intActual === 'medio' ? 'selected' : ''}>Medio (Aeróbico)</option>
+                  <option value="bajo" ${intActual === 'bajo' ? 'selected' : ''}>Bajo (Sin impacto)</option>
+                </select>
+              </div>
+              <div class="grid grid-cols-2 gap-3">
+                <div>
+                  <label class="font-mono text-[10px] uppercase text-sand block mb-1">Duración (min)</label>
+                  <input id="edit-cardio-min" type="number" min="1" max="180" value="${minActual}"
+                    class="w-full px-3 py-2 rounded-xl bg-obsidian border hairline font-mono text-sm text-ivory text-center" />
+                </div>
+                <div>
+                  <label class="font-mono text-[10px] uppercase text-sand block mb-1">Pausa (s)</label>
+                  <input id="edit-ej-desc" type="number" min="15" max="300" step="15" value="${ej.descansoSegundos || 60}"
+                    class="w-full px-3 py-2 rounded-xl bg-obsidian border hairline font-mono text-sm text-ivory text-center" />
+                </div>
+              </div>
+            `
+            : `
+              <div class="grid grid-cols-2 gap-3">
+                <div>
+                  <label class="font-mono text-[10px] uppercase text-sand block mb-1">Músculo</label>
+                  <input id="edit-ej-musculo" type="text" value="${(ej.grupoMuscular || '').replace(/"/g, '&quot;')}"
+                    class="w-full px-3.5 py-2.5 rounded-xl bg-obsidian border hairline text-xs text-ivory focus:outline-none focus:border-gold" />
+                </div>
+                <div>
+                  <label class="font-mono text-[10px] uppercase text-sand block mb-1">Tipo</label>
+                  <select id="edit-ej-tipo"
+                    class="w-full px-3 py-2.5 rounded-xl bg-obsidian border hairline text-xs text-ivory focus:outline-none focus:border-gold">
+                    <option value="compuesto" ${ej.tipo === 'compuesto' ? 'selected' : ''}>Compuesto</option>
+                    <option value="aislado" ${ej.tipo === 'aislado' ? 'selected' : ''}>Aislado</option>
+                  </select>
+                </div>
+              </div>
 
-        <div class="grid grid-cols-3 gap-2.5">
-          <div>
-            <label class="font-mono text-[10px] uppercase text-sand block mb-1">Reps mín</label>
-            <input id="edit-ej-rmin" type="number" min="1" max="50" value="${ej.repsMin || 8}"
-              class="w-full px-3 py-2 rounded-xl bg-obsidian border hairline font-mono text-sm text-ivory text-center" />
-          </div>
-          <div>
-            <label class="font-mono text-[10px] uppercase text-sand block mb-1">Reps máx</label>
-            <input id="edit-ej-rmax" type="number" min="1" max="60" value="${ej.repsMax || 12}"
-              class="w-full px-3 py-2 rounded-xl bg-obsidian border hairline font-mono text-sm text-ivory text-center" />
-          </div>
-          <div>
-            <label class="font-mono text-[10px] uppercase text-sand block mb-1">Desc. (s)</label>
-            <input id="edit-ej-desc" type="number" min="15" max="300" step="15" value="${ej.descansoSegundos || 90}"
-              class="w-full px-3 py-2 rounded-xl bg-obsidian border hairline font-mono text-sm text-ivory text-center" />
-          </div>
-        </div>
-
-        <label class="flex items-center gap-2.5 p-3 rounded-xl card-forge cursor-pointer">
-          <input id="edit-ej-bw" type="checkbox" ${ej.esPesoCorporal ? 'checked' : ''}
-            class="accent-[#D4A56A] w-4 h-4" />
-          <span class="text-xs text-ivory">Solo peso corporal (ocultar columna KG)</span>
-        </label>
+              <div class="grid grid-cols-3 gap-2.5">
+                <div>
+                  <label class="font-mono text-[10px] uppercase text-sand block mb-1">Reps mín</label>
+                  <input id="edit-ej-rmin" type="number" min="1" max="50" value="${ej.repsMin || 8}"
+                    class="w-full px-3 py-2 rounded-xl bg-obsidian border hairline font-mono text-sm text-ivory text-center" />
+                </div>
+                <div>
+                  <label class="font-mono text-[10px] uppercase text-sand block mb-1">Reps máx</label>
+                  <input id="edit-ej-rmax" type="number" min="1" max="60" value="${ej.repsMax || 12}"
+                    class="w-full px-3 py-2 rounded-xl bg-obsidian border hairline font-mono text-sm text-ivory text-center" />
+                </div>
+                <div>
+                  <label class="font-mono text-[10px] uppercase text-sand block mb-1">Desc. (s)</label>
+                  <input id="edit-ej-desc" type="number" min="15" max="300" step="15" value="${ej.descansoSegundos || 90}"
+                    class="w-full px-3 py-2 rounded-xl bg-obsidian border hairline font-mono text-sm text-ivory text-center" />
+                </div>
+              </div>
+            `
+        }
 
         <div class="flex gap-2 pt-1">
-          <button type="button" onclick="AppFORGE.abrirModalAgregarEjercicio(${ejIdx})"
+          <button type="button" onclick="AppFORGE.abrirModalAgregarEjercicio(${ejIdx}, '${esCardio ? 'cardio' : 'todos'}')"
             class="px-4 py-3 rounded-full btn-ghost font-mono text-[10px] uppercase tracking-wider shrink-0">
             Cambiar (BD)
           </button>
@@ -2210,18 +2611,52 @@ Creá 4 ejercicios por cada sesión (${diasStr}). Devolvé SOLO JSON puro:
     const ej = sesion?.ejercicios?.[ejIdx];
     if (!ej) return;
 
+    const mod = edicionModalidadActual || 'peso';
+    const esCardio = mod === 'cardio';
+
     ej.nombre = (document.getElementById('edit-ej-nombre')?.value || ej.nombre).trim();
-    ej.grupoMuscular = (document.getElementById('edit-ej-musculo')?.value || ej.grupoMuscular).trim();
-    ej.tipo = document.getElementById('edit-ej-tipo')?.value || ej.tipo;
-    ej.repsMin = Number(document.getElementById('edit-ej-rmin')?.value) || 8;
-    ej.repsMax = Math.max(ej.repsMin, Number(document.getElementById('edit-ej-rmax')?.value) || 12);
-    ej.descansoSegundos = Number(document.getElementById('edit-ej-desc')?.value) || 90;
-    ej.esPesoCorporal = Boolean(document.getElementById('edit-ej-bw')?.checked);
+    ej.descansoSegundos = Number(document.getElementById('edit-ej-desc')?.value) || (esCardio ? 60 : 90);
     ej.manualUsuario = true;
-    ej.series.forEach((s) => {
-      s.descanso_segundos = ej.descansoSegundos;
-      if (ej.esPesoCorporal) s.peso = 0;
-    });
+
+    if (esCardio) {
+      const intCardio = document.getElementById('edit-cardio-intensidad')?.value || 'medio';
+      const durMin = Math.max(1, Number(document.getElementById('edit-cardio-min')?.value) || 15);
+      const badge = obtenerBadgeCardio(intCardio);
+      ej.esCardio = true;
+      ej.tipo = 'cardio';
+      ej.intensidadCardio = intCardio;
+      ej.duracionMinutos = durMin;
+      ej.esPesoCorporal = true;
+      ej.grupoMuscular = `Cardio · ${badge.short}`;
+      ej.prescripcion = {
+        ...(ej.prescripcion || {}),
+        esCardio: true,
+        intensidadCardio: intCardio,
+        tiempoSugerido: durMin,
+        mensajeProgresion: `Meta hoy: ${durMin} min · Cardio ${badge.short}`
+      };
+      ej.series.forEach((s) => {
+        s.peso = 0;
+        s.reps = 0;
+        s.tiempo_minutos = durMin;
+        s.descanso_segundos = ej.descansoSegundos;
+      });
+    } else {
+      ej.esCardio = false;
+      ej.intensidadCardio = null;
+      ej.duracionMinutos = 0;
+      ej.grupoMuscular = (document.getElementById('edit-ej-musculo')?.value || ej.grupoMuscular).trim();
+      ej.tipo = document.getElementById('edit-ej-tipo')?.value || 'compuesto';
+      ej.repsMin = Number(document.getElementById('edit-ej-rmin')?.value) || 8;
+      ej.repsMax = Math.max(ej.repsMin, Number(document.getElementById('edit-ej-rmax')?.value) || 12);
+      ej.esPesoCorporal = mod === 'corporal';
+      ej.series.forEach((s) => {
+        s.descanso_segundos = ej.descansoSegundos;
+        s.tiempo_minutos = 0;
+        if (ej.esPesoCorporal) s.peso = 0;
+        if (!Number(s.reps)) s.reps = ej.repsMin;
+      });
+    }
 
     sesion.modificadaPorUsuario = true;
     guardarUserPlan(state.userPlan);
@@ -2272,7 +2707,9 @@ Creá 4 ejercicios por cada sesión (${diasStr}). Devolvé SOLO JSON puro:
               <div class="font-mono text-[10px] uppercase tracking-[0.18em] ${
                 audit.puntaje >= 85 ? 'text-mint' : 'text-gold'
               }">${audit.estado}</div>
-              <div class="text-xs text-sand mt-1">${sesion.ejercicios.length} ejercicios · ${audit.totalSeries} series totales</div>
+              <div class="text-xs text-sand mt-1">${sesion.ejercicios.length} ejercicios${
+                audit.totalSeries > 0 ? ` · ${audit.totalSeries} series` : ''
+              }${audit.totalMinCardio > 0 ? ` · ${audit.totalMinCardio} min cardio` : ''}</div>
             </div>
             <div class="font-display text-3xl font-bold text-gold-metallic">${audit.puntaje}<span class="text-sm text-sand">/100</span></div>
           </div>
@@ -2356,15 +2793,28 @@ Creá 4 ejercicios por cada sesión (${diasStr}). Devolvé SOLO JSON puro:
     // Mostrar auditoría local instantánea mientras consulta a la IA
     renderAuditModal(null, true, []);
 
-    const listaResumen = sesion.ejercicios.map((e, i) => ({
-      orden: i + 1,
-      nombre: e.nombre,
-      musculo: e.grupoMuscular,
-      tipo: e.tipo,
-      series: e.series.length,
-      reps: `${e.repsMin}-${e.repsMax}`,
-      descansoSeg: e.descansoSegundos
-    }));
+    const listaResumen = sesion.ejercicios.map((e, i) => {
+      if (e.esCardio || e.tipo === 'cardio') {
+        const minTot = (e.series || []).reduce((acc, s) => acc + (Number(s.tiempo_minutos) || 0), 0);
+        return {
+          orden: i + 1,
+          nombre: e.nombre,
+          tipo: 'cardio',
+          intensidadCardio: e.intensidadCardio || 'medio',
+          bloques: e.series.length,
+          minutosTotales: minTot
+        };
+      }
+      return {
+        orden: i + 1,
+        nombre: e.nombre,
+        musculo: e.grupoMuscular,
+        tipo: e.tipo,
+        series: e.series.length,
+        reps: `${e.repsMin}-${e.repsMax}`,
+        descansoSeg: e.descansoSegundos
+      };
+    });
 
     const prompt = `Sos FORGE, coach experto CSCS. El atleta modificó manualmente su sesión de "${
       sesion.divisionMuscular
@@ -2381,11 +2831,19 @@ Auditoría inicial: ${JSON.stringify({ puntaje: audit.puntaje, alertas: audit.al
     const sesion = obtenerSesionActual();
     if (!sesion || sesion.ejercicios.length < 2) return;
 
-    // Compuestos primero, aislados al final, manteniendo orden relativo dentro de cada grupo
-    const compuestos = sesion.ejercicios.filter((e) => e.tipo === 'compuesto');
-    const aislados = sesion.ejercicios.filter((e) => e.tipo !== 'compuesto');
-    sesion.ejercicios = [...compuestos, ...aislados].map((e, idx) => {
-      const descOptimo = e.tipo === 'compuesto' ? 120 : 75;
+    // Compuestos primero, aislados después y cardio al final
+    const cardio = sesion.ejercicios.filter((e) => e.esCardio || e.tipo === 'cardio');
+    const compuestos = sesion.ejercicios.filter((e) => !(e.esCardio || e.tipo === 'cardio') && e.tipo === 'compuesto');
+    const aislados = sesion.ejercicios.filter((e) => !(e.esCardio || e.tipo === 'cardio') && e.tipo !== 'compuesto');
+    sesion.ejercicios = [...compuestos, ...aislados, ...cardio].map((e, idx) => {
+      const esCardio = Boolean(e.esCardio || e.tipo === 'cardio');
+      const descOptimo = esCardio
+        ? e.intensidadCardio === 'intenso'
+          ? 90
+          : 60
+        : e.tipo === 'compuesto'
+        ? 120
+        : 75;
       e.orden = idx + 1;
       e.descansoSegundos = descOptimo;
       e.series.forEach((s) => (s.descanso_segundos = descOptimo));
@@ -2398,7 +2856,9 @@ Auditoría inicial: ${JSON.stringify({ puntaje: audit.puntaje, alertas: audit.al
     renderizar();
     mostrarToastRecalibro(
       'SESIÓN OPTIMIZADA',
-      'Ordenamos compuestos primero y ajustamos descansos según demanda neuromuscular.'
+      cardio.length > 0
+        ? 'Fuerza compuesta primero, aislados después y cardio al final para rendir al máximo.'
+        : 'Ordenamos compuestos primero y ajustamos descansos según demanda neuromuscular.'
     );
   }
 
@@ -2501,8 +2961,9 @@ Auditoría inicial: ${JSON.stringify({ puntaje: audit.puntaje, alertas: audit.al
   function ajustarSerie(ejIdx, sIdx, campo, delta) {
     const ser = obtenerSesionActual()?.ejercicios?.[ejIdx]?.series?.[sIdx];
     if (!ser) return;
-    const nuevo = Math.max(0, +(Number(ser[campo] || 0) + delta).toFixed(2));
-    ser[campo] = campo === 'reps' ? Math.round(nuevo) : nuevo;
+    const minVal = campo === 'tiempo_minutos' ? 1 : 0;
+    const nuevo = Math.max(minVal, +(Number(ser[campo] || 0) + delta).toFixed(2));
+    ser[campo] = campo === 'reps' || campo === 'tiempo_minutos' ? Math.round(nuevo) : nuevo;
     guardarUserPlan(state.userPlan);
     renderizar();
   }
@@ -2510,7 +2971,8 @@ Auditoría inicial: ${JSON.stringify({ puntaje: audit.puntaje, alertas: audit.al
   function editarSerie(ejIdx, sIdx, campo, val) {
     const ser = obtenerSesionActual()?.ejercicios?.[ejIdx]?.series?.[sIdx];
     if (!ser) return;
-    ser[campo] = Math.max(0, Number(val) || 0);
+    const minVal = campo === 'tiempo_minutos' ? 1 : 0;
+    ser[campo] = Math.max(minVal, Number(val) || minVal);
     guardarUserPlan(state.userPlan);
   }
 
@@ -2519,16 +2981,25 @@ Auditoría inicial: ${JSON.stringify({ puntaje: audit.puntaje, alertas: audit.al
     const ser = ej?.series?.[sIdx];
     if (!ej || !ser) return;
 
+    const esCardio = Boolean(ej.esCardio || ej.tipo === 'cardio');
     ser.completada = !ser.completada;
     if (ser.completada) {
       sonarAlerta('ok');
-      iniciarDescanso(ser.descanso_segundos || ej.descansoSegundos || 90);
-      // Si el usuario editó peso/reps en esta serie, propagamos a las series pendientes
       const pendientes = ej.series.slice(sIdx + 1).filter((p) => !p.completada);
-      pendientes.forEach((p) => {
-        p.peso = ser.peso;
-        p.reps = ser.reps;
-      });
+      if (esCardio) {
+        pendientes.forEach((p) => {
+          p.tiempo_minutos = ser.tiempo_minutos;
+        });
+        if (pendientes.length > 0) {
+          iniciarDescanso(ser.descanso_segundos || ej.descansoSegundos || 60, 'Pausa entre bloques');
+        }
+      } else {
+        iniciarDescanso(ser.descanso_segundos || ej.descansoSegundos || 90, 'Descanso');
+        pendientes.forEach((p) => {
+          p.peso = ser.peso;
+          p.reps = ser.reps;
+        });
+      }
     }
     guardarUserPlan(state.userPlan);
     renderizar();
@@ -2537,16 +3008,19 @@ Auditoría inicial: ${JSON.stringify({ puntaje: audit.puntaje, alertas: audit.al
   function agregarSerie(ejIdx) {
     const ej = obtenerSesionActual()?.ejercicios?.[ejIdx];
     if (!ej) return;
+    const esCardio = Boolean(ej.esCardio || ej.tipo === 'cardio');
     const ult = ej.series[ej.series.length - 1] || {
-      peso: ej.prescripcion.pesoSugerido,
-      reps: ej.prescripcion.repsSugeridas,
-      descanso_segundos: ej.descansoSegundos || 90,
+      peso: esCardio ? 0 : ej.prescripcion.pesoSugerido,
+      reps: esCardio ? 0 : ej.prescripcion.repsSugeridas,
+      tiempo_minutos: esCardio ? ej.prescripcion.tiempoSugerido || ej.duracionMinutos || 15 : 0,
+      descanso_segundos: ej.descansoSegundos || (esCardio ? 60 : 90),
       rir: 2
     };
     ej.series.push({
       numeroSerie: ej.series.length + 1,
-      peso: ult.peso,
-      reps: ult.reps,
+      peso: esCardio ? 0 : ult.peso,
+      reps: esCardio ? 0 : ult.reps,
+      tiempo_minutos: esCardio ? Math.max(1, Number(ult.tiempo_minutos) || 15) : 0,
       descanso_segundos: ult.descanso_segundos,
       rir: ult.rir,
       completada: false
@@ -2571,10 +3045,23 @@ Auditoría inicial: ${JSON.stringify({ puntaje: audit.puntaje, alertas: audit.al
 
     const ref = ej.series.find((s) => s.completada) || ej.series[0];
     const pendientes = ej.series.filter((s) => !s.completada);
+    const esCardio = Boolean(ej.esCardio || ej.tipo === 'cardio');
     const esPesoCorp = Boolean(ej.esPesoCorporal) || Number(ref?.peso || 0) === 0;
 
     let aviso = '';
-    if (sens.rir >= 3) {
+    if (esCardio) {
+      const baseMin = Math.max(1, Number(ref?.tiempo_minutos) || Number(ej.duracionMinutos) || 15);
+      if (sens.rir >= 3) {
+        const saltoMin = ej.intensidadCardio === 'intenso' ? (sens.rir === 4 ? 2 : 1) : sens.rir === 4 ? 3 : 2;
+        const nuevoTiempo = baseMin + saltoMin;
+        pendientes.forEach((p) => (p.tiempo_minutos = nuevoTiempo));
+        aviso = `${ej.nombre}: ajustado a ${nuevoTiempo} min (${sens.label.toLowerCase()}).`;
+      } else if (sens.rir === 0) {
+        aviso = `${ej.nombre}: consolidamos ${baseMin} min y regulamos el ritmo para recuperar bien.`;
+      } else {
+        aviso = `${ej.nombre}: ${sens.desc}. Duración en zona cardiovascular óptima.`;
+      }
+    } else if (sens.rir >= 3) {
       // SOBRÓ o CÓMODO -> subir exigencia
       const saltoReps = sens.rir === 4 ? 2 : 1;
       if (!esPesoCorp) {
@@ -2614,13 +3101,17 @@ Auditoría inicial: ${JSON.stringify({ puntaje: audit.puntaje, alertas: audit.al
       fecha: `${yyyy}-${mm}-${dd}`,
       divisionMuscular: divNombre,
       ejercicios: sesion.ejercicios.map((ej) => {
+        const esCardio = Boolean(ej.esCardio || ej.tipo === 'cardio');
         const hechas = ej.series.filter((s) => s.completada);
         const lista = hechas.length ? hechas : ej.series;
         return {
           nombre: ej.nombre,
+          esCardio,
+          intensidadCardio: esCardio ? ej.intensidadCardio || 'medio' : null,
           series: lista.map((s) => ({
-            peso: Number(s.peso) || 0,
-            reps: Number(s.reps) || 0,
+            peso: esCardio ? 0 : Number(s.peso) || 0,
+            reps: esCardio ? 0 : Number(s.reps) || 0,
+            tiempo_minutos: esCardio ? Math.max(1, Number(s.tiempo_minutos) || Number(ej.duracionMinutos) || 15) : 0,
             descanso_segundos: Number(s.descanso_segundos) || ej.descansoSegundos || 90,
             rir: Number(s.rir ?? 2)
           }))
@@ -2953,6 +3444,10 @@ Consulta del atleta: "${pregunta}"`;
     abrirModalAgregarEjercicio,
     cambiarModoBuscador,
     cambiarFiltroBuscador,
+    cambiarCategoriaBuscador,
+    cambiarIntensidadBuscador,
+    cambiarModalidadPropio,
+    cambiarModalidadEdicion,
     actualizarQueryBuscador,
     seleccionarEjercicioDeBD,
     guardarEjercicioPropio,

@@ -95,6 +95,20 @@ const MotorEntrenamiento = (() => {
     return molestias;
   }
 
+  const INTENSIDADES_CARDIO = {
+    intenso: 'Intenso (HIIT / Tabata)',
+    medio: 'Medio',
+    bajo: 'Bajo (Sin impacto)'
+  };
+
+  function etiquetaIntensidadCardio(intensidad = 'medio') {
+    return INTENSIDADES_CARDIO[intensidad] || INTENSIDADES_CARDIO.medio;
+  }
+
+  function esEjercicioCardio(ej) {
+    return Boolean(ej?.esCardio || ej?.tipo === 'cardio');
+  }
+
   function buscarUltimoRegistroEjercicio(nombreEjercicio, divisionActual, entrenamientos = []) {
     if (!Array.isArray(entrenamientos) || entrenamientos.length === 0) return null;
 
@@ -107,10 +121,16 @@ const MotorEntrenamiento = (() => {
         (e) => (e.nombre || '').trim().toLowerCase() === nombreNorm
       );
       if (ej && Array.isArray(ej.series) && ej.series.length > 0) {
-        const validas = ej.series.filter((s) => Number(s.reps) > 0);
+        const validas = ej.series.filter(
+          (s) => (Number(s.tiempo_minutos) || 0) > 0 || (Number(s.reps) || 0) > 0
+        );
         if (!validas.length) continue;
 
+        const esCardioHist = esEjercicioCardio(ej) || validas.some((s) => (Number(s.tiempo_minutos) || 0) > 0);
         const mejorSerie = validas.reduce((best, curr) => {
+          if (esCardioHist) {
+            return (Number(curr.tiempo_minutos) || 0) >= (Number(best.tiempo_minutos) || 0) ? curr : best;
+          }
           const scoreBest = (Number(best.peso) || 0) > 0 ? calcular1RMEpley(best.peso, best.reps) : Number(best.reps);
           const scoreCurr = (Number(curr.peso) || 0) > 0 ? calcular1RMEpley(curr.peso, curr.reps) : Number(curr.reps);
           return scoreCurr >= scoreBest ? curr : best;
@@ -136,6 +156,73 @@ const MotorEntrenamiento = (() => {
     modoDeload = false,
     esSinEquipo = false
   ) {
+    if (esEjercicioCardio(ejercicioBase)) {
+      const intensidadCardio = ejercicioBase.intensidadCardio || 'medio';
+      const labelInt = etiquetaIntensidadCardio(intensidadCardio);
+      const durBase = Math.max(
+        1,
+        Number(ejercicioBase.duracionMinutos) ||
+          (intensidadCardio === 'intenso' ? 8 : intensidadCardio === 'bajo' ? 20 : 15)
+      );
+
+      if (!historialEjercicio) {
+        const tiempoInicial = modoDeload ? Math.max(4, Math.round(durBase * 0.75)) : durBase;
+        return {
+          tieneHistorial: false,
+          esCardio: true,
+          intensidadCardio,
+          esPesoCorporal: true,
+          pesoSugerido: 0,
+          repsSugeridas: 0,
+          tiempoSugerido: tiempoInicial,
+          pesoAlternativoSubida: 0,
+          estadoProgresion: 'calibracion',
+          etiquetaEstado: 'Primera sesión',
+          mensajeProgresion: modoDeload
+            ? `Descarga hoy: ${tiempoInicial} min suaves · Cardio ${labelInt}`
+            : `Meta hoy: ${tiempoInicial} min · Cardio ${labelInt}`
+        };
+      }
+
+      const ref = historialEjercicio.mejorSerie;
+      const ultimoTiempo = Math.max(1, Number(ref.tiempo_minutos) || durBase);
+      const ultimoRir = ref.rir !== undefined && ref.rir !== null ? Number(ref.rir) : 2;
+      const pasoGrande = intensidadCardio === 'intenso' ? 2 : 3;
+      const pasoNormal = intensidadCardio === 'intenso' ? 1 : 2;
+
+      let tiempoHoy = ultimoTiempo;
+      let mensajeProgresion = '';
+
+      if (modoDeload) {
+        tiempoHoy = Math.max(4, Math.round(ultimoTiempo * 0.75));
+        mensajeProgresion = `Última vez: ${ultimoTiempo} min · Descarga hoy: ${tiempoHoy} min (${labelInt})`;
+      } else if (ultimoRir >= 3) {
+        tiempoHoy = ultimoTiempo + pasoGrande;
+        mensajeProgresion = `Última vez: ${ultimoTiempo} min (sobró) · Meta hoy: ${tiempoHoy} min · ${labelInt}`;
+      } else if (ultimoRir === 0) {
+        tiempoHoy = ultimoTiempo;
+        mensajeProgresion = `Última vez: ${ultimoTiempo} min (al límite) · Meta hoy: consolidar ${tiempoHoy} min`;
+      } else {
+        tiempoHoy = ultimoTiempo + pasoNormal;
+        mensajeProgresion = `Última vez: ${ultimoTiempo} min · Meta hoy: ${tiempoHoy} min · ${labelInt}`;
+      }
+
+      return {
+        tieneHistorial: true,
+        esCardio: true,
+        intensidadCardio,
+        esPesoCorporal: true,
+        ultimoTiempo,
+        ultimoRir,
+        fechaUltima: historialEjercicio.fecha,
+        pesoSugerido: 0,
+        repsSugeridas: 0,
+        tiempoSugerido: tiempoHoy,
+        pesoAlternativoSubida: 0,
+        mensajeProgresion
+      };
+    }
+
     const repsMin = Number(ejercicioBase.repsMin) || paramsObjetivo.repsMin || 8;
     const repsMax = Number(ejercicioBase.repsMax) || paramsObjetivo.repsMax || 12;
     const incrementoDisco = 2.5;
@@ -239,6 +326,13 @@ const MotorEntrenamiento = (() => {
   }
 
   function violaSinEquipo(ejercicio) {
+    if (
+      esEjercicioCardio(ejercicio) &&
+      Array.isArray(ejercicio?.equipamiento) &&
+      ejercicio.equipamiento.includes('peso_corporal')
+    ) {
+      return false;
+    }
     const texto = `${ejercicio?.nombre || ''} ${ejercicio?.notaTecnica || ''}`.toLowerCase();
     return PALABRAS_PROHIBIDAS_SIN_EQUIPO.some((palabra) => texto.includes(palabra));
   }
@@ -323,6 +417,13 @@ const MotorEntrenamiento = (() => {
         niveles: e.niveles,
         regresion: e.regresion,
         progresion: e.progresion,
+        porQue: e.porQueEsteEjercicio
+      })),
+      Cardio: obtenerEjerciciosPorNivelYEquipamiento(db, 'Cardio', perfil, 6).map((e) => ({
+        nombre: e.nombre,
+        intensidadCardio: e.intensidadCardio,
+        duracionMinutos: e.duracionMinutos,
+        niveles: e.niveles,
         porQue: e.porQueEsteEjercicio
       }))
     };
@@ -470,7 +571,10 @@ const MotorEntrenamiento = (() => {
           }
         }
 
-        if (esSinEquipo && !ej.manualUsuario) {
+        const esCardio = esEjercicioCardio(ej);
+        const intensidadCardio = esCardio ? ej.intensidadCardio || 'medio' : null;
+
+        if (esSinEquipo && !ej.manualUsuario && !esCardio) {
           ej.pesoBaseIntermedio = 0;
           ej.pesoSugerido = 0;
           ej.esPesoCorporal = true;
@@ -491,20 +595,24 @@ const MotorEntrenamiento = (() => {
           esSinEquipo
         );
 
-        let numSeries = Number(ej.seriesObjetivo) || paramsObj.seriesBase || 3;
+        let numSeries = esCardio
+          ? Number(ej.seriesObjetivo) || ej.series?.length || 1
+          : Number(ej.seriesObjetivo) || paramsObj.seriesBase || 3;
         if (modoDeload) {
-          numSeries = Math.max(2, Math.round(numSeries * 0.6));
+          numSeries = esCardio ? Math.max(1, numSeries) : Math.max(2, Math.round(numSeries * 0.6));
         }
 
-        const descansoSeg =
-          Number(ej.descansoSegundos) ||
-          (ej.tipo === 'aislado' ? paramsObj.descansoAislado : paramsObj.descansoCompuesto) ||
-          90;
+        const descansoSeg = esCardio
+          ? Number(ej.descansoSegundos) || (intensidadCardio === 'intenso' ? 90 : 60)
+          : Number(ej.descansoSegundos) ||
+            (ej.tipo === 'aislado' ? paramsObj.descansoAislado : paramsObj.descansoCompuesto) ||
+            90;
 
         const seriesPrellenadas = Array.from({ length: numSeries }, (_, sIdx) => ({
           numeroSerie: sIdx + 1,
-          peso: prescripcion.pesoSugerido,
-          reps: prescripcion.repsSugeridas,
+          peso: esCardio ? 0 : prescripcion.pesoSugerido,
+          reps: esCardio ? 0 : prescripcion.repsSugeridas,
+          tiempo_minutos: esCardio ? prescripcion.tiempoSugerido : 0,
           descanso_segundos: descansoSeg,
           rir: Number(ej.rirObjetivo) || paramsObj.rirObjetivo || 2,
           completada: false
@@ -514,19 +622,22 @@ const MotorEntrenamiento = (() => {
           id: ej.id || `plan_${sesIdx}_ej_${ejIdx}`,
           orden: ejIdx + 1,
           nombre: ej.nombre,
-          grupoMuscular: ej.grupoMuscular || ses.divisionMuscular,
-          tipo: ej.tipo || 'compuesto',
-          esPesoCorporal: prescripcion.esPesoCorporal,
-          regresion: ej.regresion || 'Variante más accesible con menor brazo de palanca',
-          progresion: ej.progresion || 'Variante más exigente o pausa de 2 segundos',
-          notaTecnica: ej.notaTecnica || 'Mantené el abdomen firme y controlá la bajada.',
+          grupoMuscular: ej.grupoMuscular || (esCardio ? 'Cardio' : ses.divisionMuscular),
+          tipo: esCardio ? 'cardio' : ej.tipo || 'compuesto',
+          esCardio,
+          intensidadCardio,
+          duracionMinutos: esCardio ? prescripcion.tiempoSugerido : 0,
+          esPesoCorporal: esCardio ? true : prescripcion.esPesoCorporal,
+          regresion: ej.regresion || (esCardio ? 'Reducí 3–5 min o bajá un escalón de intensidad' : 'Variante más accesible con menor brazo de palanca'),
+          progresion: ej.progresion || (esCardio ? 'Sumá 2–3 min o subí al siguiente nivel de intensidad' : 'Variante más exigente o pausa de 2 segundos'),
+          notaTecnica: ej.notaTecnica || (esCardio ? 'Mantené respiración controlada y ritmo constante durante todo el bloque.' : 'Mantené el abdomen firme y controlá la bajada.'),
           porQueEsteEjercicio:
             ej.porQueEsteEjercicio ||
             ej.porQue ||
             `Elegido para tu nivel ${nivel} respetando tu equipamiento disponible.`,
           seriesObjetivo: numSeries,
-          repsMin: Number(ej.repsMin) || paramsObj.repsMin || 8,
-          repsMax: Number(ej.repsMax) || paramsObj.repsMax || 12,
+          repsMin: esCardio ? 0 : Number(ej.repsMin) || paramsObj.repsMin || 8,
+          repsMax: esCardio ? 0 : Number(ej.repsMax) || paramsObj.repsMax || 12,
           descansoSegundos: descansoSeg,
           rirObjetivo: Number(ej.rirObjetivo) || paramsObj.rirObjetivo || 2,
           niveles: ej.niveles || [nivel],
@@ -583,14 +694,17 @@ const MotorEntrenamiento = (() => {
     const paramsObj = db.parametrosPorObjetivo?.[objetivo] || db.parametrosPorObjetivo.hipertrofia;
     const multNivel = db.multiplicadorNivel?.[nivel] || 1.0;
 
-    const esPesoCorporal =
-      ejBase.esPesoCorporal !== undefined
-        ? Boolean(ejBase.esPesoCorporal)
-        : Number(ejBase.pesoBaseIntermedio ?? ejBase.pesoSugerido ?? 0) === 0;
+    const esCardio = esEjercicioCardio(ejBase);
+    const intensidadCardio = esCardio ? ejBase.intensidadCardio || 'medio' : null;
+    const esPesoCorporal = esCardio
+      ? true
+      : ejBase.esPesoCorporal !== undefined
+      ? Boolean(ejBase.esPesoCorporal)
+      : Number(ejBase.pesoBaseIntermedio ?? ejBase.pesoSugerido ?? 0) === 0;
 
     const historialEj = buscarUltimoRegistroEjercicio(ejBase.nombre, '', entrenamientos);
     const prescripcion = calcularPrescripcionProgresiva(
-      { ...ejBase, esPesoCorporal },
+      { ...ejBase, esCardio, intensidadCardio, esPesoCorporal },
       paramsObj,
       multNivel,
       historialEj,
@@ -598,26 +712,32 @@ const MotorEntrenamiento = (() => {
       esPesoCorporal
     );
 
-    const numSeries = Number(ejBase.seriesObjetivo) || paramsObj.seriesBase || 3;
-    const descansoSeg =
-      Number(ejBase.descansoSegundos) ||
-      (ejBase.tipo === 'aislado' ? paramsObj.descansoAislado : paramsObj.descansoCompuesto) ||
-      90;
+    const numSeries = esCardio
+      ? Number(ejBase.seriesObjetivo) || 1
+      : Number(ejBase.seriesObjetivo) || paramsObj.seriesBase || 3;
+    const descansoSeg = esCardio
+      ? Number(ejBase.descansoSegundos) || (intensidadCardio === 'intenso' ? 90 : 60)
+      : Number(ejBase.descansoSegundos) ||
+        (ejBase.tipo === 'aislado' ? paramsObj.descansoAislado : paramsObj.descansoCompuesto) ||
+        90;
 
     return {
       id: ejBase.id || `custom_${Date.now()}`,
       nombre: ejBase.nombre,
-      grupoMuscular: ejBase.grupoMuscular || 'Personalizado',
-      tipo: ejBase.tipo || 'compuesto',
+      grupoMuscular: ejBase.grupoMuscular || (esCardio ? `Cardio · ${etiquetaIntensidadCardio(intensidadCardio)}` : 'Personalizado'),
+      tipo: esCardio ? 'cardio' : ejBase.tipo || 'compuesto',
+      esCardio,
+      intensidadCardio,
+      duracionMinutos: esCardio ? prescripcion.tiempoSugerido : 0,
       esPesoCorporal,
-      regresion: ejBase.regresion || 'Variante con menor carga o recorrido controlado',
-      progresion: ejBase.progresion || 'Aumentá peso, repeticiones o agregá pausa de 2s',
-      notaTecnica: ejBase.notaTecnica || 'Controlá el descenso y mantené técnica estricta en todo el rango.',
+      regresion: ejBase.regresion || (esCardio ? 'Reducí 3–5 min o bajá un escalón de intensidad' : 'Variante con menor carga o recorrido controlado'),
+      progresion: ejBase.progresion || (esCardio ? 'Sumá 2–3 min o subí de intensidad' : 'Aumentá peso, repeticiones o agregá pausa de 2s'),
+      notaTecnica: ejBase.notaTecnica || (esCardio ? 'Mantené respiración controlada y ritmo constante durante todo el bloque.' : 'Controlá el descenso y mantené técnica estricta en todo el rango.'),
       porQueEsteEjercicio:
         ejBase.porQueEsteEjercicio || 'Agregado manualmente por vos a esta sesión.',
       seriesObjetivo: numSeries,
-      repsMin: Number(ejBase.repsMin) || paramsObj.repsMin || 8,
-      repsMax: Number(ejBase.repsMax) || paramsObj.repsMax || 12,
+      repsMin: esCardio ? 0 : Number(ejBase.repsMin) || paramsObj.repsMin || 8,
+      repsMax: esCardio ? 0 : Number(ejBase.repsMax) || paramsObj.repsMax || 12,
       descansoSegundos: descansoSeg,
       rirObjetivo: Number(ejBase.rirObjetivo) || paramsObj.rirObjetivo || 2,
       niveles: ejBase.niveles || [nivel],
@@ -628,8 +748,9 @@ const MotorEntrenamiento = (() => {
       prescripcion,
       series: Array.from({ length: numSeries }, (_, idx) => ({
         numeroSerie: idx + 1,
-        peso: prescripcion.pesoSugerido,
-        reps: prescripcion.repsSugeridas,
+        peso: esCardio ? 0 : prescripcion.pesoSugerido,
+        reps: esCardio ? 0 : prescripcion.repsSugeridas,
+        tiempo_minutos: esCardio ? prescripcion.tiempoSugerido : 0,
         descanso_segundos: descansoSeg,
         rir: Number(ejBase.rirObjetivo) || paramsObj.rirObjetivo || 2,
         completada: false
@@ -647,44 +768,82 @@ const MotorEntrenamiento = (() => {
     const objetivo = userProfile?.objetivo || 'hipertrofia';
     const molestias = detectarMolestias(userProfile?.notasIA || '');
 
-    const totalSeries = ejercicios.reduce((acc, e) => acc + (e.series?.length || 0), 0);
-    const compuestos = ejercicios.filter((e) => e.tipo === 'compuesto');
-    const aislados = ejercicios.filter((e) => e.tipo === 'aislado');
+    const cardio = ejercicios.filter((e) => esEjercicioCardio(e));
+    const fuerza = ejercicios.filter((e) => !esEjercicioCardio(e));
+    const totalSeriesFuerza = fuerza.reduce((acc, e) => acc + (e.series?.length || 0), 0);
+    const totalSeries = totalSeriesFuerza;
+    const totalMinCardio = cardio.reduce(
+      (acc, e) =>
+        acc +
+        (e.series || []).reduce((m, s) => m + (Number(s.tiempo_minutos) || Number(e.duracionMinutos) || 0), 0),
+      0
+    );
+    const compuestos = fuerza.filter((e) => e.tipo === 'compuesto');
+    const aislados = fuerza.filter((e) => e.tipo === 'aislado');
 
     const fortalezas = [];
     const alertas = [];
     const ajustes = [];
     let puntaje = 100;
 
-    // 1. Volumen efectivo de la sesión (Israetel MEV / MRV diario)
+    // 1. Volumen efectivo de la sesión (Israetel MEV / MRV diario + Cardio por tiempo)
     if (ejercicios.length === 0) {
       puntaje = 0;
-      alertas.push('La sesión quedó vacía. Agregá al menos 3 ejercicios desde el buscador.');
-    } else if (totalSeries < 8) {
+      alertas.push('La sesión quedó vacía. Agregá al menos 3 ejercicios o un bloque de cardio desde el buscador.');
+    } else if (fuerza.length === 0 && cardio.length > 0) {
+      fortalezas.push(`Sesión dedicada de cardio (${totalMinCardio} min totales en ${cardio.length} bloque${cardio.length > 1 ? 's' : ''}).`);
+      const minIntenso = cardio
+        .filter((c) => c.intensidadCardio === 'intenso')
+        .reduce((acc, e) => acc + (e.series || []).reduce((m, s) => m + (Number(s.tiempo_minutos) || 0), 0), 0);
+      if (minIntenso > 30) {
+        puntaje -= 12;
+        alertas.push(`Mucho tiempo de HIIT/Tabata (${minIntenso} min). Pasados ~20–25 min cae la potencia real.`);
+        ajustes.push('Combiná 10–15 min de HIIT con un bloque de cardio Bajo (sin impacto) para enfriar.');
+      }
+    } else if (totalSeriesFuerza < 8) {
       puntaje -= 18;
-      alertas.push(`Volumen bajo (${totalSeries} series totales). Para ${objetivo} suele rendir mejor entre 10 y 18 series por sesión.`);
+      alertas.push(`Volumen de fuerza bajo (${totalSeriesFuerza} series). Para ${objetivo} suele rendir mejor entre 10 y 18 series por sesión.`);
       ajustes.push('Sumá 1 ejercicio compuesto o agregá 1 serie extra a tus ejercicios principales.');
-    } else if (totalSeries > 22) {
+    } else if (totalSeriesFuerza > 22) {
       puntaje -= 20;
-      alertas.push(`Volumen excesivo (${totalSeries} series). Pasadas las ~20 series en una sola sesión aumenta la fatiga basura.`);
+      alertas.push(`Volumen excesivo (${totalSeriesFuerza} series de fuerza). Pasadas las ~20 series aumenta la fatiga basura.`);
       ajustes.push('Recortá 1 ejercicio accesorio o dejá 3 series efectivas por movimiento para sostener la intensidad.');
     } else {
-      fortalezas.push(`Volumen en rango óptimo (${totalSeries} series efectivas en ${ejercicios.length} ejercicios).`);
+      const extraCardio = totalMinCardio > 0 ? ` + ${totalMinCardio} min de cardio` : '';
+      fortalezas.push(`Volumen en rango óptimo (${totalSeriesFuerza} series de fuerza${extraCardio}).`);
     }
 
-    // 2. Orden biomecánico (Compuestos primero -> Aislados al final)
+    // 2. Orden biomecánico (Compuestos primero -> Aislados -> Cardio al final)
     let desordenado = false;
     let vioAislado = false;
+    let vioCardio = false;
+    let cardioAntesDeFuerza = false;
     ejercicios.forEach((e) => {
-      if (e.tipo === 'aislado') vioAislado = true;
-      if (e.tipo === 'compuesto' && vioAislado) desordenado = true;
+      const esC = esEjercicioCardio(e);
+      if (esC) {
+        vioCardio = true;
+      } else {
+        if (vioCardio && e.tipo === 'compuesto') cardioAntesDeFuerza = true;
+        if (e.tipo === 'aislado') vioAislado = true;
+        if (e.tipo === 'compuesto' && vioAislado) desordenado = true;
+      }
     });
-    if (desordenado) {
+
+    if (cardioAntesDeFuerza) {
+      desordenado = true;
+      puntaje -= 14;
+      alertas.push('Tenés cardio antes de ejercicios compuestos de fuerza: puede restarte energía y estabilidad.');
+      ajustes.push('Mové el cardio al final de la sesión (el botón de abajo ordena Fuerza primero y Cardio al final).');
+    } else if (desordenado) {
       puntaje -= 12;
       alertas.push('Orden subóptimo: tenés ejercicios aislados antes de ejercicios compuestos.');
       ajustes.push('Mové los compuestos al principio cuando tu sistema nervioso está fresco (podés hacerlo en 1 toque abajo).');
     } else if (compuestos.length > 0) {
-      fortalezas.push('Orden biomecánico correcto: los movimientos multiarticulares van primero.');
+      fortalezas.push(
+        cardio.length > 0
+          ? 'Orden óptimo: fuerza compuesta primero y cardio al final de la sesión.'
+          : 'Orden biomecánico correcto: los movimientos multiarticulares van primero.'
+      );
     }
 
     // 3. Compatibilidad de nivel
@@ -697,11 +856,11 @@ const MotorEntrenamiento = (() => {
         alertas.push(
           `Agregaste ejercicios de alta exigencia para nivel principiante: ${avanzados.map((a) => a.nombre).join(', ')}.`
         );
-        ajustes.push('Si te cuesta controlar la bajada, tocá el menú del ejercicio y reemplazalo por una variante de nivel inicial.');
+        ajustes.push('Si te cuesta controlar la técnica o el pulso, reemplazalo por una variante de nivel inicial.');
       }
     }
 
-    // 4. Contraindicaciones por molestias reportadas
+    // 4. Contraindicaciones por molestias reportadas + reconocimiento cardio sin impacto
     if (molestias.length > 0) {
       const riesgosos = ejercicios.filter((e) =>
         (e.contraindicaciones || []).some((c) => molestias.includes(c))
@@ -711,9 +870,16 @@ const MotorEntrenamiento = (() => {
         alertas.push(
           `Ojo articular (${molestias.join(', ')}): revisá ${riesgosos.map((r) => r.nombre).join(', ')} porque puede irritar la zona.`
         );
-        ajustes.push('Reemplazá el ejercicio marcado o reducí el rango de movimiento sin dolor.');
+        ajustes.push('Reemplazá el ejercicio marcado o pasá a cardio Bajo (sin impacto) / rango sin dolor.');
       } else {
         fortalezas.push(`Todos los ejercicios actuales cuidan tus articulaciones reportadas (${molestias.join(', ')}).`);
+      }
+
+      if (
+        (molestias.includes('rodilla') || molestias.includes('lumbar')) &&
+        cardio.some((c) => c.intensidadCardio === 'bajo')
+      ) {
+        fortalezas.push('Muy buena elección de cardio Bajo (sin impacto) para proteger rodillas y zona lumbar.');
       }
     }
 
@@ -726,8 +892,8 @@ const MotorEntrenamiento = (() => {
       }
     }
 
-    // 6. Balance compuestos vs aislados
-    if (ejercicios.length >= 3 && compuestos.length === 0) {
+    // 6. Balance compuestos vs aislados (solo si hay trabajo de fuerza)
+    if (fuerza.length >= 3 && compuestos.length === 0) {
       puntaje -= 15;
       alertas.push('Faltan ejercicios compuestos multiarticulares (son la base de la sobrecarga progresiva).');
       ajustes.push('Incorporá al menos 2 ejercicios compuestos para los grupos principales de este día.');
@@ -743,6 +909,7 @@ const MotorEntrenamiento = (() => {
       puntaje,
       estado,
       totalSeries,
+      totalMinCardio,
       desordenado,
       fortalezas,
       alertas,
@@ -757,6 +924,8 @@ const MotorEntrenamiento = (() => {
     calcularTonelajeSeries,
     redondearPasoDisco,
     detectarMolestias,
+    etiquetaIntensidadCardio,
+    esEjercicioCardio,
     buscarUltimoRegistroEjercicio,
     calcularPrescripcionProgresiva,
     violaSinEquipo,
