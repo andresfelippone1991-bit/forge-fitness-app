@@ -65,6 +65,11 @@ const AppFORGE = (() => {
     pasoDisco: 2.5,
     generandoIA: false,
     ejercicioGrafico: '',
+    pwaInstallPrompt: null,
+    pwaInstalada:
+      typeof window !== 'undefined' &&
+      (window.matchMedia?.('(display-mode: standalone)')?.matches || window.navigator?.standalone === true),
+    offline: typeof navigator !== 'undefined' ? !navigator.onLine : false,
     descanso: {
       activo: false,
       etiqueta: 'Descanso',
@@ -84,6 +89,14 @@ const AppFORGE = (() => {
     nivel: 'intermedio',
     notasIA: ''
   };
+
+  function escapeHTML(str = '') {
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
 
   function aRomano(n) {
     return ROMANOS[n] || String(n + 1);
@@ -935,18 +948,27 @@ Creá 4 ejercicios por cada sesión (${diasStr}). Devolvé SOLO JSON puro:
     };
 
     const semanaNum = Math.max(1, Math.floor(state.entrenamientos.length / Math.max(1, plan.sesiones.length)) + 1);
-    const hayOtroActivo = plan.sesiones.some((s, i) => i !== state.sesionIdx && !s.salteadoSemana);
+    const resumenSem = window.MotorEntrenamiento.calcularResumenSemanal(plan, state.entrenamientos);
+    const estadoDiaActual = resumenSem.estadosPorDia[state.sesionIdx] || 'pendiente';
+    const hayOtroActivo = plan.sesiones.some(
+      (s, i) => i !== state.sesionIdx && resumenSem.estadosPorDia[i] === 'pendiente'
+    );
 
     return `
       <div class="space-y-6 animate-view">
         <!-- Encabezado de sesión estilo TITUS -->
         <div class="space-y-3">
           <div class="flex items-center justify-between gap-2">
-            <span class="font-mono text-[10px] uppercase tracking-[0.22em] text-gold">
-              ${(plan.objetivoNombre || 'PLAN').toUpperCase()} · SEM ${semanaNum}
-            </span>
-            <div class="flex items-center gap-2">
-              <span class="font-mono text-[10px] uppercase tracking-[0.14em] text-sand">
+            <div class="flex items-center gap-2 min-w-0">
+              <span class="font-mono text-[10px] uppercase tracking-[0.2em] text-gold truncate">
+                ${(plan.objetivoNombre || 'PLAN').toUpperCase()} · SEM ${semanaNum}
+              </span>
+              <span class="font-mono text-[9.5px] px-2 py-0.5 rounded-full bg-mint/10 border border-mint/25 text-mint shrink-0">
+                ${resumenSem.hechos}/${resumenSem.total} hechos
+              </span>
+            </div>
+            <div class="flex items-center gap-2 shrink-0">
+              <span class="font-mono text-[10px] uppercase tracking-[0.14em] text-sand hidden sm:inline">
                 ${eqLabels[plan.equipamiento] || ''}
               </span>
               <button type="button" onclick="AppFORGE.abrirModalEditarDiaPlan(${state.sesionIdx})"
@@ -962,18 +984,25 @@ Creá 4 ejercicios por cada sesión (${diasStr}). Devolvé SOLO JSON puro:
             ${plan.sesiones
               .map((s, idx) => {
                 const activo = idx === state.sesionIdx;
-                const salteado = Boolean(s.salteadoSemana);
+                const est = resumenSem.estadosPorDia[idx] || 'pendiente';
+                const salteado = est === 'salteado';
+                const hecho = est === 'hecho';
                 return `
                 <button type="button" onclick="AppFORGE.seleccionarDiaPlan(${idx})"
                   class="px-3.5 py-1.5 rounded-full font-display text-[11px] tracking-[0.12em] uppercase shrink-0 transition-all flex items-center gap-1.5 ${
                     activo
                       ? salteado
                         ? 'border border-sand/50 bg-white/5 text-sand font-semibold'
+                        : hecho
+                        ? 'border border-mint/60 bg-mint/12 text-mint font-semibold'
                         : 'border border-gold bg-gold/15 text-gold-hi font-semibold'
                       : salteado
                       ? 'border hairline text-sandDim opacity-65'
+                      : hecho
+                      ? 'border border-mint/30 text-mint/90'
                       : 'border hairline text-sand hover:text-ivory'
                   }">
+                  ${hecho ? '<span class="material-symbols-outlined text-[13px] text-mint">check_circle</span>' : ''}
                   <span class="${salteado ? 'line-through' : ''}">Día ${aRomano(idx)} · ${s.titulo || s.divisionMuscular}</span>
                   ${salteado ? '<span class="font-mono text-[8.5px] px-1.5 py-0.5 rounded-full bg-white/10 text-sand">OFF</span>' : ''}
                 </button>
@@ -987,6 +1016,28 @@ Creá 4 ejercicios por cada sesión (${diasStr}). Devolvé SOLO JSON puro:
             </button>
           </div>
         </div>
+
+        <!-- Aviso limpio si este día ya se completó esta semana -->
+        ${
+          estadoDiaActual === 'hecho'
+            ? `
+            <div class="px-4 py-2.5 rounded-2xl bg-mint/[0.07] border border-mint/25 flex items-center justify-between gap-3">
+              <div class="flex items-center gap-2 min-w-0">
+                <span class="material-symbols-outlined text-mint text-[17px]">verified</span>
+                <span class="font-mono text-[10px] uppercase tracking-[0.16em] text-mint truncate">Completado esta semana</span>
+              </div>
+              ${
+                hayOtroActivo
+                  ? `<button type="button" onclick="AppFORGE.irAlSiguienteDiaActivo()"
+                      class="font-mono text-[10px] uppercase tracking-wider text-gold-soft hover:text-gold-hi shrink-0">
+                      Próximo pendiente →
+                    </button>`
+                  : ''
+              }
+            </div>
+          `
+            : ''
+        }
 
         <!-- Banner si este día está marcado como salteado esta semana -->
         ${
@@ -1070,6 +1121,15 @@ Creá 4 ejercicios por cada sesión (${diasStr}). Devolvé SOLO JSON puro:
             <span class="material-symbols-outlined text-[16px]">auto_awesome</span>
             <span>Analizar ajustes de esta rutina con FORGE</span>
           </button>
+        </div>
+
+        <!-- Nota breve opcional de la sesión (queda en historial para FORGE Coach IA) -->
+        <div class="rounded-2xl card-forge px-4 py-3 flex items-center gap-2.5">
+          <span class="material-symbols-outlined text-gold/70 text-[18px] shrink-0">edit_note</span>
+          <input id="nota-sesion-actual" type="text" value="${escapeHTML(sesion.notaSesionDraft || '')}"
+            oninput="AppFORGE.actualizarNotaSesion(this.value)"
+            placeholder="Nota de hoy (opc.): ej. dormí 5h, molestia leve en hombro..."
+            class="w-full bg-transparent text-xs text-ivory placeholder:text-sandDim focus:outline-none" />
         </div>
 
         <!-- Botón dorado final para guardar el entrenamiento y recalibrar la próxima semana -->
@@ -1351,8 +1411,9 @@ Creá 4 ejercicios por cada sesión (${diasStr}). Devolvé SOLO JSON puro:
       avanzado: 'Avanzado'
     };
 
-    const totalDias = plan.sesiones.length;
-    const diasSalteados = plan.sesiones.filter((s) => s.salteadoSemana).length;
+    const resumenSem = window.MotorEntrenamiento.calcularResumenSemanal(plan, state.entrenamientos);
+    const totalDias = resumenSem.total;
+    const diasSalteados = resumenSem.salteados;
     const diasActivos = totalDias - diasSalteados;
 
     return `
@@ -1429,15 +1490,33 @@ Creá 4 ejercicios por cada sesión (${diasStr}). Devolvé SOLO JSON puro:
               </p>
             </div>
 
+            <!-- Resumen semanal claro: Hecho / Salteado / Pendiente -->
+            <div class="grid grid-cols-3 gap-2 pt-2 border-t hairline">
+              <div class="px-3 py-2 rounded-xl bg-mint/[0.06] border border-mint/20 text-center">
+                <div class="font-display text-lg font-bold text-mint leading-none">${resumenSem.hechos}</div>
+                <div class="font-mono text-[9px] uppercase tracking-[0.16em] text-mint/80 mt-1">Hechos</div>
+              </div>
+              <div class="px-3 py-2 rounded-xl bg-white/[0.03] border hairline text-center">
+                <div class="font-display text-lg font-bold text-sand leading-none">${resumenSem.salteados}</div>
+                <div class="font-mono text-[9px] uppercase tracking-[0.16em] text-sandDim mt-1">Salteados</div>
+              </div>
+              <div class="px-3 py-2 rounded-xl bg-gold/[0.06] border border-gold/25 text-center">
+                <div class="font-display text-lg font-bold text-gold-hi leading-none">${resumenSem.pendientes}</div>
+                <div class="font-mono text-[9px] uppercase tracking-[0.16em] text-gold/80 mt-1">Pendientes</div>
+              </div>
+            </div>
+
             <!-- Días incluidos en el plan (clicables directo a Entrenar + botón editar/saltear) -->
-            <div class="space-y-2 pt-2 border-t hairline">
+            <div class="space-y-2 pt-1">
               <div class="flex items-center justify-between px-0.5 pb-0.5">
-                <span class="font-mono text-[9.5px] uppercase tracking-[0.2em] text-sandDim">Días de tu semana</span>
-                <span class="font-mono text-[9px] text-sandDim">Tocá ⋯ para saltear o editar</span>
+                <span class="font-mono text-[9.5px] uppercase tracking-[0.2em] text-sandDim">Días de tu semana (${resumenSem.semanaActual})</span>
+                <span class="font-mono text-[9px] text-sandDim">Tocá ⋯ para editar</span>
               </div>
               ${plan.sesiones
                 .map((s, idx) => {
-                  const salteado = Boolean(s.salteadoSemana);
+                  const est = resumenSem.estadosPorDia[idx] || 'pendiente';
+                  const hecho = est === 'hecho';
+                  const salteado = est === 'salteado';
                   const soloCardio =
                     Boolean(s.esDiaCardio) ||
                     (s.ejercicios.length > 0 && s.ejercicios.every((e) => e.esCardio || e.tipo === 'cardio'));
@@ -1455,19 +1534,31 @@ Creá 4 ejercicios por cada sesión (${diasStr}). Devolvé SOLO JSON puro:
                     : `${s.ejercicios.length} ejercicios`;
 
                   return `
-                <div class="rounded-xl bg-obsidian/70 border hairline flex items-center justify-between transition ${
-                  salteado ? 'opacity-60 border-dashed' : 'hover:border-gold/35'
+                <div class="rounded-xl bg-obsidian/70 border flex items-center justify-between transition ${
+                  hecho
+                    ? 'border-mint/30 bg-mint/[0.03]'
+                    : salteado
+                    ? 'hairline opacity-60 border-dashed'
+                    : 'hairline hover:border-gold/35'
                 }">
                   <button type="button" onclick="AppFORGE.abrirDiaEnEntrenar(${idx})"
                     class="flex-1 px-4 py-3 flex items-center gap-3 min-w-0 text-left">
-                    <span class="font-display text-xs ${salteado ? 'text-sandDim' : 'text-gold'} w-5 shrink-0">${aRomano(idx)}</span>
+                    ${
+                      hecho
+                        ? `<span class="w-5 h-5 rounded-full bg-mint/15 border border-mint/50 text-mint flex items-center justify-center shrink-0">
+                            <span class="material-symbols-outlined text-[13px]">check</span>
+                          </span>`
+                        : `<span class="font-display text-xs ${salteado ? 'text-sandDim' : 'text-gold'} w-5 shrink-0">${aRomano(idx)}</span>`
+                    }
                     <div class="min-w-0">
                       <div class="flex items-center gap-2">
                         <span class="text-sm font-medium text-ivory truncate ${salteado ? 'line-through text-sand' : ''}">${
                           s.titulo || s.divisionMuscular
                         }</span>
                         ${
-                          salteado
+                          hecho
+                            ? `<span class="px-2 py-0.5 rounded-full bg-mint/10 border border-mint/30 font-mono text-[8.5px] uppercase tracking-wider text-mint shrink-0">Hecho</span>`
+                            : salteado
                             ? `<span class="px-2 py-0.5 rounded-full bg-white/10 font-mono text-[8.5px] uppercase tracking-wider text-sand shrink-0">Salteado</span>`
                             : soloCardio
                             ? `<span class="px-2 py-0.5 rounded-full bg-mint/10 border border-mint/25 font-mono text-[8.5px] uppercase tracking-wider text-mint shrink-0">Cardio</span>`
@@ -1797,13 +1888,20 @@ Creá 4 ejercicios por cada sesión (${diasStr}). Devolvé SOLO JSON puro:
                   const realIdx = state.entrenamientos.length - 1 - idx;
                   return `
                   <article class="p-4 rounded-2xl card-forge space-y-2.5">
-                    <div class="flex items-center justify-between">
-                      <div>
+                    <div class="flex items-center justify-between gap-2">
+                      <div class="flex flex-wrap items-center gap-2 min-w-0">
                         <span class="font-display text-sm font-semibold tracking-wider uppercase text-ivory">${ses.divisionMuscular}</span>
-                        <span class="font-mono text-[10px] text-sand ml-2">${ses.fecha}</span>
+                        <span class="font-mono text-[10px] text-sand">${ses.fecha}</span>
+                        ${
+                          Array.isArray(ses.records) && ses.records.length > 0
+                            ? `<span class="px-2 py-0.5 rounded-full bg-gold/15 border border-gold/40 font-mono text-[9px] uppercase tracking-wider text-gold-hi">★ ${
+                                ses.records.length === 1 ? 'PR' : `${ses.records.length} PRs`
+                              }</span>`
+                            : ''
+                        }
                       </div>
                       <button type="button" onclick="AppFORGE.eliminarSesion(${realIdx})"
-                        class="text-sandDim hover:text-ivory transition" title="Eliminar">
+                        class="text-sandDim hover:text-ivory transition shrink-0" title="Eliminar">
                         <span class="material-symbols-outlined text-[16px]">delete</span>
                       </button>
                     </div>
@@ -1840,6 +1938,13 @@ Creá 4 ejercicios por cada sesión (${diasStr}). Devolvé SOLO JSON puro:
                         })
                         .join('')}
                     </div>
+                    ${
+                      ses.notaSesion
+                        ? `<div class="pt-2 border-t hairline font-editorial italic text-xs text-sand leading-relaxed">
+                            “${escapeHTML(ses.notaSesion)}”
+                          </div>`
+                        : ''
+                    }
                   </article>
                 `;
                 })
@@ -1910,6 +2015,31 @@ Creá 4 ejercicios por cada sesión (${diasStr}). Devolvé SOLO JSON puro:
     return `
       <div class="space-y-4">
         <div class="rounded-2xl card-forge divide-y hairline overflow-hidden">
+          <div class="px-5 py-4 flex items-center justify-between gap-3">
+            <div>
+              <div class="text-sm font-medium text-ivory">App instalable y modo offline</div>
+              <div class="text-xs text-sand">
+                ${
+                  state.pwaInstalada
+                    ? 'Instalada en tu dispositivo · Funciona sin señal'
+                    : state.pwaInstallPrompt
+                    ? 'Instalala en tu inicio para abrir a pantalla completa'
+                    : 'Android: menú ⋮ → Instalar · iPhone: Compartir → Inicio'
+                }
+              </div>
+            </div>
+            ${
+              state.pwaInstalada
+                ? `<span class="px-2.5 py-1 rounded-full bg-mint/10 border border-mint/30 font-mono text-[9.5px] uppercase text-mint shrink-0">Activa</span>`
+                : state.pwaInstallPrompt
+                ? `<button type="button" onclick="AppFORGE.instalarAppPWA()"
+                    class="px-3.5 py-1.5 rounded-full btn-gold font-display text-[10px] font-bold uppercase tracking-wider shrink-0">
+                    Instalar
+                  </button>`
+                : `<span class="px-2.5 py-1 rounded-full border hairline font-mono text-[9.5px] uppercase text-gold-soft shrink-0">PWA</span>`
+            }
+          </div>
+
           <button type="button" onclick="AppFORGE.abrirOnboarding()"
             class="w-full px-5 py-4 flex items-center justify-between text-left hover:bg-white/[0.02] transition">
             <div>
@@ -3270,8 +3400,20 @@ Auditoría inicial: ${JSON.stringify({ puntaje: audit.puntaje, alertas: audit.al
   }
 
   function irAlSiguienteDiaActivo() {
-    const sesiones = state.userPlan?.sesiones || [];
+    const plan = state.userPlan;
+    const sesiones = plan?.sesiones || [];
     if (!sesiones.length) return;
+    const resumen = window.MotorEntrenamiento.calcularResumenSemanal(plan, state.entrenamientos);
+    // Primero buscar el próximo día 'pendiente'
+    for (let offset = 1; offset < sesiones.length; offset++) {
+      const idx = (state.sesionIdx + offset) % sesiones.length;
+      if (resumen.estadosPorDia[idx] === 'pendiente') {
+        state.sesionIdx = idx;
+        renderizar();
+        return;
+      }
+    }
+    // Respaldo: cualquier día no salteado
     for (let offset = 1; offset < sesiones.length; offset++) {
       const idx = (state.sesionIdx + offset) % sesiones.length;
       if (!sesiones[idx].salteadoSemana) {
@@ -3280,6 +3422,13 @@ Auditoría inicial: ${JSON.stringify({ puntaje: audit.puntaje, alertas: audit.al
         return;
       }
     }
+  }
+
+  function actualizarNotaSesion(val) {
+    const sesion = obtenerSesionActual();
+    if (!sesion) return;
+    sesion.notaSesionDraft = val || '';
+    guardarUserPlan(state.userPlan);
   }
 
   function abrirModalBiometria() {
@@ -3514,12 +3663,21 @@ Auditoría inicial: ${JSON.stringify({ puntaje: audit.puntaje, alertas: audit.al
     const yyyy = hoy.getFullYear();
     const mm = String(hoy.getMonth() + 1).padStart(2, '0');
     const dd = String(hoy.getDate()).padStart(2, '0');
-    const divNombre = sesion.divisionMuscular;
+    const divNombre = sesion.divisionMuscular || sesion.titulo;
+    const semanaISO = window.MotorEntrenamiento.obtenerClaveSemanaISO(hoy);
+    const notaSesion = (
+      document.getElementById('nota-sesion-actual')?.value ||
+      sesion.notaSesionDraft ||
+      ''
+    ).trim();
 
     const nuevo = {
       id: `${dd}-${mm}-${yyyy}`,
       fecha: `${yyyy}-${mm}-${dd}`,
+      semanaISO,
+      sesionId: sesion.id,
       divisionMuscular: divNombre,
+      notaSesion,
       ejercicios: sesion.ejercicios.map((ej) => {
         const esCardio = Boolean(ej.esCardio || ej.tipo === 'cardio');
         const hechas = ej.series.filter((s) => s.completada);
@@ -3539,6 +3697,16 @@ Auditoría inicial: ${JSON.stringify({ puntaje: audit.puntaje, alertas: audit.al
       })
     };
 
+    const records = window.MotorEntrenamiento.detectarRecordsSesion(nuevo, state.entrenamientos);
+    nuevo.records = records;
+
+    // Marcar día como completado esta semana y limpiar borrador de nota
+    sesion.completadoSemana = semanaISO;
+    sesion.salteadoSemana = false;
+    sesion.fechaSalteado = null;
+    sesion.notaSesionDraft = '';
+    guardarUserPlan(state.userPlan);
+
     guardarEntrenamientos([...state.entrenamientos, nuevo]);
     saltarDescanso();
     await rehidratarPlanGuardado();
@@ -3554,6 +3722,29 @@ Auditoría inicial: ${JSON.stringify({ puntaje: audit.puntaje, alertas: audit.al
     `
       )
       .join('');
+
+    const recordsHTML = records.length
+      ? `
+        <div class="p-4 rounded-2xl bg-gold/12 border border-gold/45 space-y-2">
+          <div class="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.2em] text-gold-hi">
+            <span>★</span>
+            <span>${records.length === 1 ? 'NUEVO RÉCORD PERSONAL' : `${records.length} NUEVOS RÉCORDS PERSONALES`}</span>
+          </div>
+          <div class="space-y-1.5">
+            ${records
+              .map(
+                (r) => `
+              <div class="flex items-center justify-between gap-2 text-xs">
+                <span class="font-editorial italic text-[15px] text-ivory truncate">${r.nombre}</span>
+                <span class="font-mono text-[10.5px] text-gold-hi shrink-0">${r.valorNuevo} <span class="text-mint">(${r.mejora})</span></span>
+              </div>
+            `
+              )
+              .join('')}
+          </div>
+        </div>
+      `
+      : '';
 
     renderizar();
 
@@ -3576,7 +3767,17 @@ Auditoría inicial: ${JSON.stringify({ puntaje: audit.puntaje, alertas: audit.al
           </button>
         </div>
 
-        <div class="space-y-2.5 max-h-[45dvh] overflow-y-auto">
+        ${recordsHTML}
+
+        ${
+          notaSesion
+            ? `<div class="px-3.5 py-2.5 rounded-xl bg-obsidian border hairline font-editorial italic text-xs text-sand">
+                Nota guardada para FORGE Coach: “${escapeHTML(notaSesion)}”
+              </div>`
+            : ''
+        }
+
+        <div class="space-y-2.5 max-h-[38dvh] overflow-y-auto">
           ${ajustesHTML}
         </div>
 
@@ -3804,7 +4005,57 @@ Consulta del atleta: "${pregunta}"`;
     }, 3400);
   }
 
+  function registrarPWA() {
+    if (typeof window === 'undefined') return;
+
+    if (
+      'serviceWorker' in navigator &&
+      (window.location.protocol === 'https:' || window.location.protocol === 'http:')
+    ) {
+      navigator.serviceWorker.register('./sw.js').catch(() => {});
+    }
+
+    window.addEventListener('beforeinstallprompt', (ev) => {
+      ev.preventDefault();
+      state.pwaInstallPrompt = ev;
+      if (state.vista === 'progreso' && state.subTabProgreso === 'ajustes') {
+        renderizar();
+      }
+    });
+
+    window.addEventListener('appinstalled', () => {
+      state.pwaInstalada = true;
+      state.pwaInstallPrompt = null;
+      mostrarToastRecalibro('FORGE INSTALADA', 'Ya podés abrir FORGE directo desde tu pantalla de inicio.');
+      if (state.vista === 'progreso') renderizar();
+    });
+
+    window.addEventListener('offline', () => {
+      state.offline = true;
+      mostrarToastRecalibro('MODO OFFLINE ACTIVO', 'Seguís entrenando normal; todo se guarda en tu dispositivo.');
+    });
+
+    window.addEventListener('online', () => {
+      state.offline = false;
+    });
+  }
+
+  async function instalarAppPWA() {
+    if (!state.pwaInstallPrompt) return;
+    try {
+      state.pwaInstallPrompt.prompt();
+      const choice = await state.pwaInstallPrompt.userChoice;
+      if (choice?.outcome === 'accepted') {
+        state.pwaInstalada = true;
+      }
+      state.pwaInstallPrompt = null;
+      renderizar();
+    } catch (e) {}
+  }
+
   async function init() {
+    registrarPWA();
+
     if (!localStorage.getItem(STORAGE_KEYS.GEMINI_KEY)) {
       localStorage.setItem(STORAGE_KEYS.GEMINI_KEY, DEFAULT_API_KEY);
     }
@@ -3820,6 +4071,14 @@ Consulta del atleta: "${pregunta}"`;
 
     draftOnboarding = { ...draftOnboarding, ...state.userProfile };
 
+    let cambioSemana = false;
+    if (state.userPlan) {
+      cambioSemana = window.MotorEntrenamiento.sincronizarCambioDeSemana(state.userPlan);
+      if (cambioSemana) {
+        guardarUserPlan(state.userPlan);
+      }
+    }
+
     if (
       !state.userPlan ||
       state.userPlan.equipamiento !== state.userProfile.equipamiento ||
@@ -3832,6 +4091,13 @@ Consulta del atleta: "${pregunta}"`;
 
     state.vista = 'entrenar';
     renderizar();
+
+    if (cambioSemana) {
+      mostrarToastRecalibro(
+        'NUEVA SEMANA INICIADA',
+        'Reiniciamos tus días completados y salteados para arrancar la semana limpia.'
+      );
+    }
   }
 
   return {
@@ -3885,6 +4151,8 @@ Consulta del atleta: "${pregunta}"`;
     eliminarDiaPlan,
     reiniciarSemanaSalteados,
     irAlSiguienteDiaActivo,
+    actualizarNotaSesion,
+    instalarAppPWA,
     abrirModalBiometria,
     guardarBiometriaModal,
     cerrarModal,

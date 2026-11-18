@@ -81,6 +81,191 @@ const MotorEntrenamiento = (() => {
   }
 
   /**
+   * Devuelve la clave de semana ISO basada en Lunes en hora local (ej: "2026-W47")
+   */
+  function obtenerClaveSemanaISO(fechaInput = new Date()) {
+    let d;
+    if (typeof fechaInput === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(fechaInput)) {
+      const [y, m, day] = fechaInput.split('-').map(Number);
+      d = new Date(y, m - 1, day);
+    } else {
+      d = new Date(fechaInput);
+    }
+    if (isNaN(d.getTime())) d = new Date();
+    const target = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+    const dayNum = target.getUTCDay() || 7;
+    target.setUTCDate(target.getUTCDate() + 4 - dayNum);
+    const yearStart = new Date(Date.UTC(target.getUTCFullYear(), 0, 1));
+    const weekNo = Math.ceil(((target - yearStart) / 86400000 + 1) / 7);
+    return `${target.getUTCFullYear()}-W${String(weekNo).padStart(2, '0')}`;
+  }
+
+  /**
+   * Reinicia automáticamente días salteados y completados cuando cambia la semana calendario (Lunes)
+   */
+  function sincronizarCambioDeSemana(plan, fechaRef = new Date()) {
+    if (!plan || !Array.isArray(plan.sesiones)) return false;
+    const semanaActual = obtenerClaveSemanaISO(fechaRef);
+    if (!plan.semanaActiva) {
+      plan.semanaActiva = semanaActual;
+      return false;
+    }
+    if (plan.semanaActiva !== semanaActual) {
+      plan.semanaActiva = semanaActual;
+      plan.sesiones.forEach((s) => {
+        s.salteadoSemana = false;
+        s.fechaSalteado = null;
+        s.completadoSemana = null;
+      });
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * Calcula el estado semanal de cada día del plan: 'hecho' | 'salteado' | 'pendiente'
+   */
+  function calcularResumenSemanal(plan, entrenamientos = [], fechaRef = new Date()) {
+    const semanaActual = obtenerClaveSemanaISO(fechaRef);
+    const sesiones = plan?.sesiones || [];
+    const entSemana = (entrenamientos || []).filter(
+      (e) => (e.semanaISO || obtenerClaveSemanaISO(e.fecha)) === semanaActual
+    );
+    const usados = new Set();
+
+    const estadosPorDia = sesiones.map((ses) => {
+      let hecho = ses.completadoSemana === semanaActual;
+
+      if (!hecho) {
+        const matchIdx = entSemana.findIndex((w, i) => {
+          if (usados.has(i)) return false;
+          if (w.sesionId && ses.id && w.sesionId === ses.id) return true;
+          const nomW = (w.divisionMuscular || '').trim().toLowerCase();
+          const nomS = (ses.divisionMuscular || ses.titulo || '').trim().toLowerCase();
+          return nomW && nomS && nomW === nomS;
+        });
+        if (matchIdx !== -1) {
+          usados.add(matchIdx);
+          hecho = true;
+        }
+      }
+
+      if (hecho) return 'hecho';
+      if (ses.salteadoSemana) return 'salteado';
+      return 'pendiente';
+    });
+
+    const hechos = estadosPorDia.filter((e) => e === 'hecho').length;
+    const salteados = estadosPorDia.filter((e) => e === 'salteado').length;
+    const pendientes = estadosPorDia.filter((e) => e === 'pendiente').length;
+
+    return {
+      semanaActual,
+      total: sesiones.length,
+      hechos,
+      salteados,
+      pendientes,
+      estadosPorDia
+    };
+  }
+
+  /**
+   * Detecta Récords Personales (PRs) reales comparando la sesión recién guardada contra el historial previo
+   */
+  function detectarRecordsSesion(nuevaSesion, historialPrevio = []) {
+    if (!nuevaSesion?.ejercicios?.length || !Array.isArray(historialPrevio) || historialPrevio.length === 0) {
+      return [];
+    }
+
+    const records = [];
+
+    for (const ej of nuevaSesion.ejercicios) {
+      const nombreNorm = (ej.nombre || '').trim().toLowerCase();
+      if (!nombreNorm || !Array.isArray(ej.series) || !ej.series.length) continue;
+
+      const previos = [];
+      for (const ses of historialPrevio) {
+        for (const ePrev of ses.ejercicios || []) {
+          if ((ePrev.nombre || '').trim().toLowerCase() === nombreNorm && Array.isArray(ePrev.series) && ePrev.series.length) {
+            previos.push(ePrev);
+          }
+        }
+      }
+      if (!previos.length) continue; // Primera vez que registra este ejercicio
+
+      const esCardio = esEjercicioCardio(ej) || ej.series.some((s) => (Number(s.tiempo_minutos) || 0) > 0);
+
+      if (esCardio) {
+        const minNuevo = ej.series.reduce((acc, s) => acc + (Number(s.tiempo_minutos) || 0), 0);
+        const minPrevMax = Math.max(
+          0,
+          ...previos.map((p) => p.series.reduce((acc, s) => acc + (Number(s.tiempo_minutos) || 0), 0))
+        );
+        if (minNuevo > minPrevMax && minPrevMax > 0) {
+          records.push({
+            nombre: ej.nombre,
+            tipo: 'cardio',
+            valorNuevo: `${minNuevo} min`,
+            valorAnterior: `${minPrevMax} min`,
+            mejora: `+${minNuevo - minPrevMax} min`
+          });
+        }
+        continue;
+      }
+
+      const maxPesoNuevo = Math.max(...ej.series.map((s) => Number(s.peso) || 0));
+      if (maxPesoNuevo > 0) {
+        let mejorSerie = ej.series[0];
+        let mejor1RMNuevo = 0;
+        for (const s of ej.series) {
+          const rm = calcular1RMEpley(s.peso, s.reps);
+          if (rm > mejor1RMNuevo) {
+            mejor1RMNuevo = rm;
+            mejorSerie = s;
+          }
+        }
+        let prev1RMMax = 0;
+        for (const p of previos) {
+          for (const s of p.series) {
+            const rm = calcular1RMEpley(s.peso, s.reps);
+            if (rm > prev1RMMax) prev1RMMax = rm;
+          }
+        }
+        if (mejor1RMNuevo > prev1RMMax && prev1RMMax > 0) {
+          const diff = +(mejor1RMNuevo - prev1RMMax).toFixed(1);
+          records.push({
+            nombre: ej.nombre,
+            tipo: 'peso',
+            valorNuevo: `${mejorSerie.peso} kg × ${mejorSerie.reps}`,
+            valorAnterior: `1RM ${prev1RMMax} kg`,
+            mejora: `+${diff} kg 1RM`
+          });
+        }
+      } else {
+        const maxRepsNuevo = Math.max(...ej.series.map((s) => Number(s.reps) || 0));
+        let prevRepsMax = 0;
+        for (const p of previos) {
+          for (const s of p.series) {
+            const r = Number(s.reps) || 0;
+            if (r > prevRepsMax) prevRepsMax = r;
+          }
+        }
+        if (maxRepsNuevo > prevRepsMax && prevRepsMax > 0) {
+          records.push({
+            nombre: ej.nombre,
+            tipo: 'reps',
+            valorNuevo: `${maxRepsNuevo} reps`,
+            valorAnterior: `${prevRepsMax} reps`,
+            mejora: `+${maxRepsNuevo - prevRepsMax} reps`
+          });
+        }
+      }
+    }
+
+    return records;
+  }
+
+  /**
    * Detecta molestias articulares mencionadas por el usuario en sus notas libres
    */
   function detectarMolestias(notas = '') {
@@ -661,6 +846,8 @@ const MotorEntrenamiento = (() => {
             : ejerciciosLimpios.length > 0 && ejerciciosLimpios.every((e) => esEjercicioCardio(e)),
         salteadoSemana: Boolean(ses.salteadoSemana),
         fechaSalteado: ses.fechaSalteado || null,
+        completadoSemana: ses.completadoSemana || null,
+        notaSesionDraft: ses.notaSesionDraft || '',
         modificadaPorUsuario: Boolean(ses.modificadaPorUsuario),
         ejercicios: ejerciciosLimpios
       };
@@ -668,6 +855,7 @@ const MotorEntrenamiento = (() => {
 
     return {
       ...planSemanal,
+      semanaActiva: planSemanal?.semanaActiva || obtenerClaveSemanaISO(),
       equipamiento,
       objetivo,
       nivel,
@@ -1020,6 +1208,10 @@ const MotorEntrenamiento = (() => {
     calcular1RMBrzycki,
     calcularTonelajeSeries,
     redondearPasoDisco,
+    obtenerClaveSemanaISO,
+    sincronizarCambioDeSemana,
+    calcularResumenSemanal,
+    detectarRecordsSesion,
     detectarMolestias,
     etiquetaIntensidadCardio,
     esEjercicioCardio,
